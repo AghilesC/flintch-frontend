@@ -7,6 +7,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Modal,
   ScrollView,
@@ -15,16 +16,23 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import Toast from "react-native-toast-message";
 
+// ---- DropdownSelector pro ---- //
 interface DropdownSelectorProps {
   label: string;
   options: string[];
-  selected: string[]; // supporte multi-selection
+  selected: string[];
   onSelect: (value: string[]) => void;
   multiple?: boolean;
 }
-
 const DropdownSelector: React.FC<DropdownSelectorProps> = ({
   label,
   options,
@@ -33,12 +41,26 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
   multiple = false,
 }) => {
   const [visible, setVisible] = useState(false);
+  const isObjectif = label === "Objectif(s)";
+  const [tempSelected, setTempSelected] = useState<string[]>(selected);
 
+  const openModal = () => {
+    setTempSelected(selected);
+    setVisible(true);
+  };
   const toggleValue = (val: string) => {
-    if (selected.includes(val)) {
-      onSelect(selected.filter((v) => v !== val));
+    if (tempSelected.includes(val)) {
+      setTempSelected(tempSelected.filter((v) => v !== val));
     } else {
-      onSelect([...selected, val]);
+      if (isObjectif && tempSelected.length >= 2) return;
+      setTempSelected([...tempSelected, val]);
+    }
+  };
+  const canValidate = !isObjectif || tempSelected.length >= 1;
+  const handleValidate = () => {
+    if (canValidate) {
+      onSelect(tempSelected);
+      setVisible(false);
     }
   };
 
@@ -47,7 +69,8 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
       <Text style={styles.label}>{label}</Text>
       <TouchableOpacity
         style={styles.selector}
-        onPress={() => setVisible(true)}
+        onPress={openModal}
+        activeOpacity={0.85}
       >
         <Text style={{ color: selected.length > 0 ? "#092C44" : "#aaa" }}>
           {selected.length > 0
@@ -57,11 +80,7 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
         <Ionicons name="chevron-down" size={18} color="#092C44" />
       </TouchableOpacity>
       <Modal visible={visible} transparent animationType="fade">
-        <TouchableOpacity
-          style={styles.overlay}
-          onPress={() => setVisible(false)}
-          activeOpacity={1}
-        >
+        <View style={styles.overlay}>
           <View style={styles.modal}>
             <FlatList
               data={options}
@@ -70,34 +89,48 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
                 <TouchableOpacity
                   style={[
                     styles.option,
-                    selected.includes(item) && { backgroundColor: "#eee" },
+                    tempSelected.includes(item) && {
+                      backgroundColor: "#F5F6FA",
+                    },
                   ]}
-                  onPress={() => {
-                    if (multiple) {
-                      toggleValue(item);
-                    } else {
-                      onSelect([item]);
-                      setVisible(false);
-                    }
-                  }}
+                  onPress={() => toggleValue(item)}
+                  disabled={
+                    isObjectif &&
+                    !tempSelected.includes(item) &&
+                    tempSelected.length >= 2
+                  }
                 >
-                  <Text style={styles.optionText}>
+                  <Text
+                    style={[
+                      styles.optionText,
+                      tempSelected.includes(item) && { color: "#FF5135" },
+                      isObjectif &&
+                        !tempSelected.includes(item) &&
+                        tempSelected.length >= 2 && { color: "#bbb" },
+                    ]}
+                  >
                     {item}
-                    {selected.includes(item) && " ✔"}
+                    {tempSelected.includes(item) ? "  ✔" : ""}
                   </Text>
                 </TouchableOpacity>
               )}
             />
-            {multiple && (
-              <TouchableOpacity
-                style={styles.modalBtn}
-                onPress={() => setVisible(false)}
+            <TouchableOpacity
+              style={[
+                styles.modalBtn,
+                !canValidate && { backgroundColor: "#ddd" },
+              ]}
+              disabled={!canValidate}
+              onPress={handleValidate}
+            >
+              <Text
+                style={[styles.modalBtnText, !canValidate && { color: "#aaa" }]}
               >
-                <Text style={styles.modalBtnText}>Valider</Text>
-              </TouchableOpacity>
-            )}
+                Valider
+              </Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </>
   );
@@ -126,6 +159,17 @@ const sportsList = [
   "🚶 Marche",
 ];
 
+const niveauxList = [
+  "N’a même pas commencé",
+  "Extrêmement débutant",
+  "Débutant",
+  "Intermédiaire léger",
+  "Intermédiaire confirmé",
+  "Avancé",
+  "Régulièrement",
+  "Athlète confirmé",
+];
+
 const objectifsList = [
   "Perte de poids",
   "Prise de masse",
@@ -137,17 +181,16 @@ const objectifsList = [
   "Stabilité mentale",
   "Santé générale",
   "Préparation compétition",
-];
-
-const niveauxList = [
-  "N’a même pas commencé",
-  "Extrêmement débutant",
-  "Débutant",
-  "Intermédiaire léger",
-  "Intermédiaire confirmé",
-  "Avancé",
-  "Régulièrement",
-  "Athlète confirmé",
+  "Remise en forme",
+  "Bien-être",
+  "Se défouler",
+  "Socialiser",
+  "Découverte sportive",
+  "Performance",
+  "Musculation esthétique",
+  "Confiance en soi",
+  "Prendre du plaisir",
+  "Récupération/blessure",
 ];
 
 export default function CompleteProfile() {
@@ -160,13 +203,76 @@ export default function CompleteProfile() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // Util pour parser tout ce qui peut arriver (array, stringifié, null)
+  // --- Animation valeurs ---
+  const screenHeight = Dimensions.get("window").height;
+  const translateY = useSharedValue(screenHeight * 0.28); // start un peu en bas
+  const opacity = useSharedValue(0.6);
+  const scale = useSharedValue(0.96);
+  const shadow = useSharedValue(2);
+
+  // Anim: entrée smooth (up + scale)
+  useEffect(() => {
+    translateY.value = withTiming(0, {
+      duration: 420,
+      easing: Easing.out(Easing.exp),
+    });
+    opacity.value = withTiming(1, {
+      duration: 540,
+      easing: Easing.out(Easing.cubic),
+    });
+    scale.value = withTiming(1, {
+      duration: 420,
+      easing: Easing.out(Easing.exp),
+    });
+    shadow.value = withTiming(12, {
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, []);
+
+  // Anim: fermeture
+  const handleGoBack = () => {
+    opacity.value = withTiming(0.2, {
+      duration: 250,
+      easing: Easing.in(Easing.exp),
+    });
+    scale.value = withTiming(0.94, {
+      duration: 340,
+      easing: Easing.in(Easing.exp),
+    });
+    shadow.value = withTiming(1, {
+      duration: 300,
+      easing: Easing.in(Easing.exp),
+    });
+    translateY.value = withTiming(
+      screenHeight * 0.25,
+      {
+        duration: 370,
+        easing: Easing.in(Easing.exp),
+      },
+      (finished) => {
+        if (finished) runOnJS(router.replace)("/profile");
+      }
+    );
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+    opacity: opacity.value,
+    shadowOpacity: 0.16 + 0.16 * (shadow.value / 12),
+    shadowRadius: shadow.value,
+    shadowColor: "#000",
+    elevation: shadow.value,
+    borderTopLeftRadius: 38,
+    borderTopRightRadius: 38,
+  }));
+
+  // Utilitaire pour parser string/array
   const parseArray = (val: any) => {
     if (Array.isArray(val)) return val;
     if (typeof val === "string" && val.startsWith("[")) {
       try {
         const arr = JSON.parse(val);
-        // Tableau de string ou d'array de string
         if (Array.isArray(arr) && typeof arr[0] === "string") return arr;
         if (Array.isArray(arr) && Array.isArray(arr[0])) return arr[0];
       } catch (e) {}
@@ -203,13 +309,48 @@ export default function CompleteProfile() {
     })();
   }, []);
 
+  // Limiter sports à min 1, max 5
   const toggleSport = (sport: string) => {
-    setSports((prev) =>
-      prev.includes(sport) ? prev.filter((s) => s !== sport) : [...prev, sport]
-    );
+    if (sports.includes(sport)) {
+      if (sports.length === 1) {
+        Toast.show({
+          type: "info",
+          text1: "Choix minimum",
+          text2: "Tu dois sélectionner au moins 1 sport 🏀",
+        });
+        return;
+      }
+      setSports((prev) => prev.filter((s) => s !== sport));
+    } else {
+      if (sports.length >= 5) {
+        Toast.show({
+          type: "info",
+          text1: "Maximum atteint",
+          text2: "Tu peux sélectionner jusqu'à 5 sports maximum !",
+        });
+        return;
+      }
+      setSports((prev) => [...prev, sport]);
+    }
   };
 
   const handleSave = async () => {
+    if (sports.length < 1) {
+      Toast.show({
+        type: "error",
+        text1: "Sport manquant",
+        text2: "Sélectionne au moins 1 sport !",
+      });
+      return;
+    }
+    if (objectifs.length < 1) {
+      Toast.show({
+        type: "error",
+        text1: "Objectif manquant",
+        text2: "Sélectionne au moins 1 objectif !",
+      });
+      return;
+    }
     setLoading(true);
     try {
       const token = await AsyncStorage.getItem("token");
@@ -241,139 +382,199 @@ export default function CompleteProfile() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.replace("/profile")}>
-          <Ionicons
-            name="arrow-back"
-            size={24}
-            color="#FF5135"
-            style={styles.backIcon}
-          />
-        </TouchableOpacity>
-        <Text style={styles.title}>Modifier le profil</Text>
-      </View>
-
-      <DropdownSelector
-        label="Genre"
-        selected={gender ? [gender] : []}
-        options={["Homme", "Femme", "Non-binaire", "Autre"]}
-        onSelect={(arr) => setGender(arr[0] || "")}
+    <View style={{ flex: 1, backgroundColor: "#F7F8FA" }}>
+      {/* Un backdrop semi-transparent */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          {
+            backgroundColor: "#000",
+            opacity: opacity.value * 0.18,
+            zIndex: 1,
+          },
+        ]}
       />
-      <DropdownSelector
-        label="Niveau sportif"
-        selected={niveau ? [niveau] : []}
-        options={niveauxList}
-        onSelect={(arr) => setNiveau(arr[0] || "")}
-      />
-      <DropdownSelector
-        label="Objectif(s)"
-        selected={objectifs}
-        options={objectifsList}
-        onSelect={setObjectifs}
-        multiple
-      />
-
-      <Text style={styles.label}>Sports pratiqués</Text>
-      <View style={styles.sportsWrapper}>
-        {sportsList.map((sport, i) => {
-          const selected = sports.includes(sport);
-          return (
-            <TouchableOpacity
-              key={i}
-              onPress={() => toggleSport(sport)}
-              style={[
-                styles.sportButton,
-                selected
-                  ? styles.sportButtonSelected
-                  : styles.sportButtonUnselected,
-              ]}
-            >
-              <Text
-                style={
-                  selected
-                    ? styles.sportTextSelected
-                    : styles.sportTextUnselected
-                }
-              >
-                {sport}
-              </Text>
+      {/* Le panneau animé */}
+      <Animated.View style={[{ flex: 1, zIndex: 2 }, animatedStyle]}>
+        <ScrollView contentContainerStyle={styles.bgContainer}>
+          {/* HEADER */}
+          <View style={styles.headerCard}>
+            <TouchableOpacity onPress={handleGoBack}>
+              <Ionicons
+                name="arrow-back"
+                size={24}
+                color="#FF5135"
+                style={styles.backIcon}
+              />
             </TouchableOpacity>
-          );
-        })}
-      </View>
+            <Text style={styles.headerTitle}>Modifier le profil</Text>
+          </View>
+          {/* MAIN CARD */}
+          <View style={styles.mainCard}>
+            <DropdownSelector
+              label="Genre"
+              selected={gender ? [gender] : []}
+              options={["Homme", "Femme", "Non-binaire", "Autre"]}
+              onSelect={(arr) => setGender(arr[0] || "")}
+            />
+            <DropdownSelector
+              label="Niveau sportif"
+              selected={niveau ? [niveau] : []}
+              options={niveauxList}
+              onSelect={(arr) => setNiveau(arr[0] || "")}
+            />
+            <DropdownSelector
+              label="Objectif(s)"
+              selected={objectifs}
+              options={objectifsList}
+              onSelect={setObjectifs}
+              multiple
+            />
+            {objectifs.length < 1 && (
+              <Text style={{ color: "#FF5135", marginBottom: 8 }}>
+                Choisis au moins 1 objectif
+              </Text>
+            )}
 
-      <Text style={styles.label}>Disponibilité (jours / heures)</Text>
-      <View style={{ marginBottom: 30 }}>
-        <DisponibiliteGrille
-          onChange={setAvailability}
-          initial={availability}
-        />
-      </View>
+            <Text style={styles.sectionLabel}>Sports pratiqués</Text>
+            <View style={styles.sportsGrid}>
+              {sportsList.map((sport, i) => {
+                const selected = sports.includes(sport);
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    onPress={() => toggleSport(sport)}
+                    style={[
+                      styles.sportPill,
+                      selected && styles.sportPillSelected,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.sportPillText,
+                        selected && styles.sportPillTextSelected,
+                      ]}
+                    >
+                      {sport}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-      <TouchableOpacity
-        onPress={handleSave}
-        disabled={loading}
-        style={styles.saveButton}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.saveButtonText}>Enregistrer</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+            <Text style={styles.sectionLabel}>
+              Disponibilité (jours / heures)
+            </Text>
+            <View style={styles.dispoCard}>
+              <DisponibiliteGrille
+                onChange={setAvailability}
+                initial={availability}
+              />
+            </View>
+          </View>
+
+          <TouchableOpacity
+            onPress={handleSave}
+            disabled={loading}
+            style={styles.saveBtn}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveBtnText}>Enregistrer</Text>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
+      </Animated.View>
+    </View>
   );
 }
 
+// ---- STYLES ----
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    backgroundColor: "#fff",
+  bgContainer: {
+    backgroundColor: "#F7F8FA",
+    padding: 0,
     flexGrow: 1,
+    alignItems: "center",
   },
-  header: {
+  headerCard: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
+    paddingTop: 22,
+    paddingBottom: 10,
+    paddingHorizontal: 20,
+    backgroundColor: "#fff",
+    width: "100%",
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    elevation: 2,
+    zIndex: 10,
+    borderTopLeftRadius: 38,
+    borderTopRightRadius: 38,
   },
   backIcon: {
-    marginRight: 10,
+    marginRight: 12,
   },
-  title: {
-    fontSize: 24,
+  headerTitle: {
+    fontSize: 22,
     fontWeight: "700",
     color: "#0E4A7B",
+  },
+  mainCard: {
+    backgroundColor: "#fff",
+    width: "94%",
+    borderRadius: 28,
+    padding: 20,
+    marginTop: 20,
+    marginBottom: 20,
+    elevation: 4,
+    shadowColor: "#091e42",
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 18,
   },
   label: {
     fontWeight: "600",
     marginBottom: 5,
     color: "#092C44",
+    fontSize: 15,
+  },
+  sectionLabel: {
+    fontWeight: "700",
+    marginBottom: 8,
+    marginTop: 18,
+    color: "#0E4A7B",
+    fontSize: 17,
   },
   selector: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 15,
+    borderWidth: 1.2,
+    borderColor: "#eee",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 13,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    backgroundColor: "#F8FAFD",
   },
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    backgroundColor: "rgba(0,0,0,0.14)",
     justifyContent: "center",
-    padding: 30,
+    padding: 28,
   },
   modal: {
     backgroundColor: "#fff",
     borderRadius: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
     maxHeight: 400,
+    elevation: 7,
   },
   option: {
-    padding: 15,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
@@ -384,50 +585,79 @@ const styles = StyleSheet.create({
   modalBtn: {
     backgroundColor: "#FF5135",
     padding: 13,
-    borderRadius: 8,
-    margin: 12,
+    borderRadius: 10,
+    margin: 14,
     alignItems: "center",
   },
   modalBtnText: {
     color: "#fff",
     fontWeight: "bold",
     fontSize: 16,
+    letterSpacing: 0.6,
   },
-  sportsWrapper: {
+  sportsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginBottom: 20,
+    gap: 8,
+    marginBottom: 8,
+    marginTop: 0,
   },
-  sportButton: {
+  sportPill: {
     paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    margin: 5,
-  },
-  sportButtonSelected: {
-    backgroundColor: "#FF5135",
-    borderColor: "#FF5135",
-  },
-  sportButtonUnselected: {
-    backgroundColor: "#fff",
+    paddingHorizontal: 17,
+    borderRadius: 22,
+    borderWidth: 1.5,
     borderColor: "#ccc",
-  },
-  sportTextSelected: {
-    color: "#fff",
-  },
-  sportTextUnselected: {
-    color: "#000",
-  },
-  saveButton: {
-    backgroundColor: "#0E4A7B",
-    padding: 15,
-    borderRadius: 14,
+    backgroundColor: "#F6F8FB",
+    margin: 4,
     alignItems: "center",
   },
-  saveButtonText: {
+  sportPillSelected: {
+    backgroundColor: "#FF5135",
+    borderColor: "#FF5135",
+    shadowColor: "#FF5135",
+    shadowOpacity: 0.09,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+  },
+  sportPillText: {
+    fontSize: 16,
+    color: "#092C44",
+    fontWeight: "600",
+  },
+  sportPillTextSelected: {
     color: "#fff",
     fontWeight: "bold",
-    fontSize: 16,
+  },
+  dispoCard: {
+    backgroundColor: "#F5F6FA",
+    borderRadius: 17,
+    padding: 10,
+    marginVertical: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  saveBtn: {
+    backgroundColor: "#FF5135",
+    padding: 16,
+    borderRadius: 24,
+    marginTop: 10,
+    marginBottom: 30,
+    alignItems: "center",
+    width: "88%",
+    shadowColor: "#FF5135",
+    shadowOpacity: 0.17,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  saveBtnText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 18,
+    letterSpacing: 0.5,
   },
 });
