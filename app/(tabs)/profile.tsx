@@ -11,12 +11,45 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
+
 import Svg, {
   Circle,
   Defs,
   Stop,
   LinearGradient as SvgGradient,
 } from "react-native-svg";
+
+// ---- Nouveau : mapping objectif → emoji ----
+const objectifsIcons: { [key: string]: string } = {
+  "Perte de poids": "⚖️",
+  "Prise de masse": "💪",
+  Cardio: "🏃",
+  Sèche: "🔥",
+  "Renforcement musculaire": "🦾",
+  Souplesse: "🤸",
+  Endurance: "⏱️",
+  "Stabilité mentale": "🧘",
+  "Santé générale": "💙",
+  "Préparation compétition": "🏆",
+  "Remise en forme": "🦵",
+  "Bien-être": "🧖",
+  "Se défouler": "🥊",
+  Socialiser: "🤝",
+  "Découverte sportive": "🔎",
+  Performance: "⚡",
+  "Musculation esthétique": "👙",
+  "Confiance en soi": "😎",
+  "Prendre du plaisir": "😃",
+  "Récupération/blessure": "🩹",
+};
 
 const CIRCLE_SIZE = 150;
 const STROKE_WIDTH = 8;
@@ -38,10 +71,198 @@ function CardAction({ icon, color, title, subtitle }: any) {
   );
 }
 
+const AnimatedView = Animated.createAnimatedComponent(View);
+const AnimatedTouchableOpacity =
+  Animated.createAnimatedComponent(TouchableOpacity);
+
+function AnimatedObjectif({
+  icon,
+  text,
+  delay = 0,
+}: {
+  icon: string;
+  text: string;
+  delay?: number;
+}) {
+  // ✨ TON GLOW ORIGINAL (rouge)
+  const glow = useSharedValue(0.6);
+
+  // ✨ NOUVELLE ANIMATION POP-IN
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(25);
+  const scale = useSharedValue(0.7);
+
+  useEffect(() => {
+    // Ton glow original
+    glow.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 700 }),
+          withTiming(0.7, { duration: 900 }),
+          withTiming(1, { duration: 600 })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Nouvelle animation d'apparition
+    opacity.value = withDelay(delay, withTiming(1, { duration: 500 }));
+    translateY.value = withDelay(delay, withTiming(0, { duration: 600 }));
+    scale.value = withDelay(
+      delay,
+      withSequence(
+        withTiming(1.15, { duration: 250 }),
+        withTiming(0.95, { duration: 150 }),
+        withTiming(1, { duration: 100 })
+      )
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    // TON GLOW ORIGINAL
+    shadowColor: "#FF5135",
+    shadowOpacity: glow.value,
+    shadowRadius: 18 + 6 * glow.value,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 7 * glow.value,
+    // NOUVELLE ANIMATION POP-IN
+    opacity: opacity.value,
+    transform: [
+      { translateY: translateY.value },
+      { scale: (0.96 + 0.08 * glow.value) * scale.value }, // Combine glow + pop-in
+    ],
+  }));
+
+  return (
+    <AnimatedView style={[styles.objectifTag, animatedStyle]}>
+      <Text style={styles.objectifEmoji}>{icon}</Text>
+      <Text style={styles.objectifText}>{text}</Text>
+    </AnimatedView>
+  );
+}
+
+function AnimatedSportTag({
+  text,
+  delay = 0,
+}: {
+  text: string;
+  delay?: number;
+}) {
+  // ✨ TON GLOW ORIGINAL (bleu)
+  const glow = useSharedValue(0.6);
+
+  // ✨ NOUVELLE ANIMATION POP-IN
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(20);
+  const scale = useSharedValue(0.8);
+
+  useEffect(() => {
+    // Ton glow original
+    glow.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(1, { duration: 700 }),
+          withTiming(0.7, { duration: 900 }),
+          withTiming(1, { duration: 600 })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Nouvelle animation d'apparition
+    opacity.value = withDelay(delay, withTiming(1, { duration: 600 }));
+    translateY.value = withDelay(delay, withTiming(0, { duration: 700 }));
+    scale.value = withDelay(
+      delay,
+      withSequence(
+        withTiming(1.1, { duration: 300 }),
+        withTiming(1, { duration: 200 })
+      )
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    // TON GLOW ORIGINAL
+    shadowColor: "#4CCAF1", // BLEU!
+    shadowOpacity: glow.value,
+    shadowRadius: 18 + 6 * glow.value,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 7 * glow.value,
+    // NOUVELLE ANIMATION POP-IN
+    opacity: opacity.value,
+    transform: [
+      { translateY: translateY.value },
+      { scale: (0.96 + 0.08 * glow.value) * scale.value }, // Combine glow + pop-in
+    ],
+  }));
+
+  return (
+    <AnimatedView style={[styles.sportTag, animatedStyle]}>
+      <Text style={styles.sportText}>{text}</Text>
+    </AnimatedView>
+  );
+}
+
 export default function ProfileScreen() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+
+  // ✨ NOUVEAU : Animation battement de cœur (heartbeat)
+  const heartbeatScale = useSharedValue(1);
+  const heartbeatGlow = useSharedValue(0.3);
+
+  useEffect(() => {
+    // Battement de cœur réaliste : boom-boom... pause... boom-boom... pause
+    heartbeatScale.value = withRepeat(
+      withSequence(
+        // Premier battement (systole)
+        withTiming(1.08, { duration: 100 }),
+        withTiming(1, { duration: 100 }),
+        // Deuxième battement (diastole)
+        withTiming(1.05, { duration: 80 }),
+        withTiming(1, { duration: 120 }),
+        // Pause entre les battements
+        withTiming(1, { duration: 800 })
+      ),
+      -1,
+      false
+    );
+
+    // Glow qui suit le battement
+    heartbeatGlow.value = withRepeat(
+      withSequence(
+        // Premier glow
+        withTiming(0.8, { duration: 100 }),
+        withTiming(0.3, { duration: 100 }),
+        // Deuxième glow
+        withTiming(0.6, { duration: 80 }),
+        withTiming(0.2, { duration: 120 }),
+        // Pause glow
+        withTiming(0.3, { duration: 800 })
+      ),
+      -1,
+      false
+    );
+  }, []);
+
+  const heartbeatStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: heartbeatScale.value }],
+    shadowOpacity: heartbeatGlow.value,
+    shadowRadius: 15 + heartbeatGlow.value * 10,
+    shadowColor: "#FF5135",
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5 + heartbeatGlow.value * 5,
+  }));
+
+  const heartbeatBarStyle = useAnimatedStyle(() => ({
+    opacity: heartbeatGlow.value + 0.4,
+    transform: [{ scaleX: heartbeatScale.value }],
+  }));
 
   // ----------- Fetch User dynamique ----------
   const fetchUser = async () => {
@@ -50,6 +271,7 @@ export default function ProfileScreen() {
       const response = await axios.get("http://localhost:8000/api/user", {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log("📊 User data loaded:", response.data);
       setUser(response.data);
     } catch (error) {
       console.error("Erreur fetch user:", error);
@@ -58,20 +280,114 @@ export default function ProfileScreen() {
     }
   };
 
+  // ✨ Rechargement avec interval optimisé pour mise à jour temps réel
   useEffect(() => {
     fetchUser();
-    // eslint-disable-next-line
+
+    // Vérifier les mises à jour toutes les 1 seconde pour plus de réactivité
+    const interval = setInterval(() => {
+      fetchUser();
+    }, 1000);
+
+    return () => clearInterval(interval);
   }, []);
+
+  // Rechargement quand user change
+  useEffect(() => {
+    if (user) {
+      const completion = getProfileCompletion();
+      console.log(
+        "⚡ TEMPS RÉEL - User updated - new completion:",
+        completion + "%"
+      );
+    }
+  }, [user]);
 
   // ----------- Dynamique pour SVG ---------
   const getProfileCompletion = () => {
-    if (!user) return 0;
-    let percent = 40;
-    if (user.sports && user.sports.length >= 1) percent += 20;
-    if (user.profile_photo) percent += 20;
-    if (user.goals && user.goals.length) percent += 10;
-    if (user.bio) percent += 10;
-    return Math.min(percent, 100);
+    if (!user) {
+      console.log("❌ User is null - completion = 0");
+      return 0;
+    }
+
+    let percent = 0;
+    console.log("🔧 Calculating completion for:", user.name);
+
+    // 1. Genre (20%)
+    if (user.gender) {
+      percent += 20;
+      console.log("✅ Genre found:", user.gender, "- adding 20%");
+    } else {
+      console.log("❌ Genre missing - 0%");
+    }
+
+    // 2. Niveau sportif (20%)
+    if (user.fitness_level) {
+      percent += 20;
+      console.log(
+        "✅ Fitness level found:",
+        user.fitness_level,
+        "- adding 20%"
+      );
+    } else {
+      console.log("❌ Fitness level missing - 0%");
+    }
+
+    // 3. Objectifs (20%)
+    if (user.goals && user.goals.length > 0) {
+      percent += 20;
+      console.log("✅ Goals found:", user.goals.length, "goals - adding 20%");
+    } else {
+      console.log("❌ Goals missing - 0%");
+    }
+
+    // 4. Sports (20%)
+    if (user.sports && user.sports.length > 0) {
+      percent += 20;
+      console.log(
+        "✅ Sports found:",
+        user.sports.length,
+        "sports - adding 20%"
+      );
+    } else {
+      console.log("❌ Sports missing - 0%");
+    }
+
+    // 5. Disponibilité (20%) - Vérifier qu'il y a vraiment des créneaux sélectionnés
+    const hasAvailability =
+      user.availability &&
+      Object.keys(user.availability).length > 0 &&
+      Object.values(user.availability).some(
+        (daySlots: any) =>
+          daySlots &&
+          Object.keys(daySlots).length > 0 &&
+          Object.values(daySlots).some((slot: any) => slot === true)
+      );
+
+    if (hasAvailability) {
+      percent += 20;
+      console.log("✅ Availability found with real slots - adding 20%");
+    } else {
+      console.log("❌ Availability missing or empty - 0%", user.availability);
+    }
+
+    const finalPercent = Math.min(percent, 100);
+    console.log(
+      "🎯 Final completion:",
+      finalPercent +
+        "% (Genre:" +
+        (user.gender ? "✅" : "❌") +
+        " | Level:" +
+        (user.fitness_level ? "✅" : "❌") +
+        " | Goals:" +
+        (user.goals?.length > 0 ? "✅" : "❌") +
+        " | Sports:" +
+        (user.sports?.length > 0 ? "✅" : "❌") +
+        " | Dispo:" +
+        (hasAvailability ? "✅" : "❌") +
+        ")"
+    );
+    return finalPercent;
   };
 
   const getAge = (birthdate: string) => {
@@ -89,9 +405,26 @@ export default function ProfileScreen() {
     return (
       <View style={styles.sportsList}>
         {user.sports.slice(0, 5).map((sport: string, idx: number) => (
-          <View style={styles.sportTag} key={sport + idx}>
-            <Text style={styles.sportText}>{sport}</Text>
-          </View>
+          <AnimatedSportTag key={sport + idx} text={sport} delay={idx * 120} />
+        ))}
+      </View>
+    );
+  };
+
+  // ---- Affichage Objectifs en pictos ----
+  const renderObjectifs = () => {
+    if (!user.goals || user.goals.length === 0) {
+      return null;
+    }
+    return (
+      <View style={styles.objectifsList}>
+        {user.goals.slice(0, 5).map((objectif: string, idx: number) => (
+          <AnimatedObjectif
+            key={objectif + idx}
+            icon={objectifsIcons[objectif] || "🎯"}
+            text={objectif}
+            delay={idx * 120}
+          />
         ))}
       </View>
     );
@@ -118,24 +451,17 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      {/* HERO + Barre circulaire */}
+      {/* HERO + Barre circulaire avec battement de cœur */}
       <View style={styles.gradientBg}>
-        <View style={styles.circleContainer}>
-          <Svg width={CIRCLE_SIZE} height={CIRCLE_SIZE} key={completion}>
-            {/* Cercle gris fond */}
-            <Circle
-              cx={CIRCLE_SIZE / 2}
-              cy={CIRCLE_SIZE / 2}
-              r={RADIUS}
-              stroke="#eee"
-              strokeWidth={STROKE_WIDTH}
-              fill="none"
-            />
-            {/* Progress Gradient */}
+        {/* Container avec effet heartbeat pour SVG + Photo ensemble */}
+        <AnimatedView style={[styles.circleContainer, heartbeatStyle]}>
+          <Svg width={CIRCLE_SIZE} height={CIRCLE_SIZE}>
+            {/* Progress Gradient avec effet pulsation */}
             <Defs>
               <SvgGradient id="grad" x1="0" y1="0" x2="1" y2="1">
                 <Stop offset="0%" stopColor="#FF5135" />
-                <Stop offset="100%" stopColor="#FF7D31" />
+                <Stop offset="50%" stopColor="#FF7D31" />
+                <Stop offset="100%" stopColor="#4CCAF1" />
               </SvgGradient>
             </Defs>
             <Circle
@@ -143,20 +469,19 @@ export default function ProfileScreen() {
               cy={CIRCLE_SIZE / 2}
               r={RADIUS}
               stroke="url(#grad)"
-              strokeWidth={STROKE_WIDTH}
+              strokeWidth={STROKE_WIDTH + 1}
               strokeDasharray={CIRCUMFERENCE}
               strokeDashoffset={strokeDashoffset}
               strokeLinecap="round"
               fill="none"
-              rotation="-90"
-              origin={`${CIRCLE_SIZE / 2},${CIRCLE_SIZE / 2}`}
+              transform={`rotate(-90 ${CIRCLE_SIZE / 2} ${CIRCLE_SIZE / 2})`}
             />
           </Svg>
-          {/* Photo + crayon cliquables */}
+
+          {/* Photo + crayon avec même effet heartbeat */}
           <TouchableOpacity
             style={styles.profilePicTouchable}
             onPress={async () => {
-              // Va sur complete-profile, puis au retour, refetch les infos pour update la progressbar !
               await router.push("../(auth)/complete-profile");
               setLoading(true);
               await fetchUser();
@@ -172,23 +497,34 @@ export default function ProfileScreen() {
               style={styles.profileImage}
               resizeMode="cover"
             />
-            <TouchableOpacity
-              style={styles.editIcon}
-              onPress={async () => {
-                await router.push("../(auth)/complete-profile");
-                setLoading(true);
-                await fetchUser();
-              }}
-              activeOpacity={0.9}
-            >
-              <Ionicons name="pencil" size={22} color="#fff" />
-            </TouchableOpacity>
           </TouchableOpacity>
+
+          {/* Icône d'édition séparée */}
+          <TouchableOpacity
+            style={styles.editIcon}
+            onPress={async () => {
+              await router.push("../(auth)/complete-profile");
+              setLoading(true);
+              await fetchUser();
+            }}
+            activeOpacity={0.9}
+          >
+            <Ionicons name="pencil" size={22} color="#fff" />
+          </TouchableOpacity>
+        </AnimatedView>
+
+        {/* Texte de complétion avec animation heartbeat */}
+        <View style={styles.completionTextContainer}>
+          <Text style={styles.completionText}>{completion} % COMPLETÉ</Text>
+          <View style={styles.heartbeatLine}>
+            <AnimatedView
+              style={[styles.heartbeatIndicator, heartbeatBarStyle]}
+            />
+          </View>
         </View>
-        <Text style={styles.completionText}>{completion} % COMPLETÉ</Text>
       </View>
 
-      {/* Nom, âge, sports */}
+      {/* Nom, âge, sports, objectifs */}
       <View style={styles.infoCard}>
         <Text style={styles.name}>
           {user?.name
@@ -197,6 +533,7 @@ export default function ProfileScreen() {
           {user?.birthdate ? `, ${getAge(user.birthdate)}` : ""}
         </Text>
         {renderSports()}
+        {renderObjectifs()}
       </View>
 
       {/* Fond gris bas + actions */}
@@ -263,53 +600,61 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: CIRCLE_SIZE,
     height: CIRCLE_SIZE,
+    borderRadius: CIRCLE_SIZE / 2,
+    backgroundColor: "transparent",
     marginBottom: 5,
   },
   profilePicTouchable: {
     position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
     alignItems: "center",
     justifyContent: "center",
-    width: CIRCLE_SIZE,
-    height: CIRCLE_SIZE,
+    width: CIRCLE_SIZE - 26,
+    height: CIRCLE_SIZE - 26,
+    borderRadius: (CIRCLE_SIZE - 26) / 2,
   },
   profileImage: {
     width: CIRCLE_SIZE - 26,
     height: CIRCLE_SIZE - 26,
     borderRadius: (CIRCLE_SIZE - 26) / 2,
-    borderWidth: 4,
-    borderColor: "#fff",
-    backgroundColor: "#eee",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    elevation: 5,
+    overflow: "hidden",
   },
   editIcon: {
     position: "absolute",
-    right: 12,
-    top: 12,
+    right: 10,
+    top: 110,
     backgroundColor: "#FF5135",
     borderRadius: 16,
     padding: 6,
-    borderWidth: 2,
-    borderColor: "#fff",
     elevation: 3,
     shadowColor: "#FF5135",
     shadowOpacity: 0.25,
     shadowRadius: 5,
+    zIndex: 10,
+  },
+  completionTextContainer: {
+    alignItems: "center",
+    marginTop: 15,
   },
   completionText: {
     color: "#FF5135",
     fontWeight: "700",
     fontSize: 15,
-    marginTop: 10,
     letterSpacing: 1,
     textAlign: "center",
+    marginBottom: 8,
+  },
+  heartbeatLine: {
+    width: 80,
+    height: 2,
+    backgroundColor: "rgba(255, 81, 53, 0.2)",
+    borderRadius: 1,
+    overflow: "hidden",
+  },
+  heartbeatIndicator: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#FF5135",
+    borderRadius: 1,
   },
   infoCard: {
     alignItems: "center",
@@ -354,6 +699,38 @@ const styles = StyleSheet.create({
     marginBottom: 22,
     fontFamily: "Inter_400Regular",
   },
+  // -------- Objectifs en pictos --------
+  objectifsList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    marginTop: 2,
+    gap: 8,
+  },
+  objectifTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF4F0",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    margin: 4,
+    shadowColor: "#FF5135",
+    shadowOpacity: 0.09,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  objectifEmoji: {
+    fontSize: 17,
+    marginRight: 6,
+  },
+  objectifText: {
+    fontSize: 15,
+    color: "#FF5135",
+    fontFamily: "Inter_600SemiBold",
+  },
+  // ---------------------------------------
   bottomGrayWrapper: {
     backgroundColor: "#F5F6FA",
     width: "98%",

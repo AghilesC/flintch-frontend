@@ -42,21 +42,33 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
 }) => {
   const [visible, setVisible] = useState(false);
   const isObjectif = label === "Objectif(s)";
+  const isGenre = label === "Genre";
+  const isNiveau = label === "Niveau sportif";
   const [tempSelected, setTempSelected] = useState<string[]>(selected);
 
   const openModal = () => {
     setTempSelected(selected);
     setVisible(true);
   };
+
   const toggleValue = (val: string) => {
-    if (tempSelected.includes(val)) {
+    if (isGenre || isNiveau) {
+      // Pour le genre et niveau : sélection unique
+      setTempSelected([val]);
+    } else if (tempSelected.includes(val)) {
       setTempSelected(tempSelected.filter((v) => v !== val));
     } else {
       if (isObjectif && tempSelected.length >= 2) return;
       setTempSelected([...tempSelected, val]);
     }
   };
-  const canValidate = !isObjectif || tempSelected.length >= 1;
+
+  // Validation : Genre et Niveau doivent avoir exactement 1 choix, Objectifs au moins 1
+  const canValidate =
+    isGenre || isNiveau
+      ? tempSelected.length === 1
+      : !isObjectif || tempSelected.length >= 1;
+
   const handleValidate = () => {
     if (canValidate) {
       onSelect(tempSelected);
@@ -79,41 +91,59 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
         </Text>
         <Ionicons name="chevron-down" size={18} color="#092C44" />
       </TouchableOpacity>
+
+      {/* Messages d'aide */}
+      {isGenre && selected.length < 1 && (
+        <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
+          Choisis ton genre
+        </Text>
+      )}
+      {isNiveau && selected.length < 1 && (
+        <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
+          Choisis ton niveau sportif
+        </Text>
+      )}
+      {isObjectif && selected.length < 1 && (
+        <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
+          Choisis au moins 1 objectif
+        </Text>
+      )}
+
       <Modal visible={visible} transparent animationType="fade">
         <View style={styles.overlay}>
           <View style={styles.modal}>
             <FlatList
               data={options}
               keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.option,
-                    tempSelected.includes(item) && {
-                      backgroundColor: "#F5F6FA",
-                    },
-                  ]}
-                  onPress={() => toggleValue(item)}
-                  disabled={
-                    isObjectif &&
-                    !tempSelected.includes(item) &&
-                    tempSelected.length >= 2
-                  }
-                >
-                  <Text
+              renderItem={({ item }) => {
+                const isSelected = tempSelected.includes(item);
+                const isDisabled =
+                  isGenre || isNiveau
+                    ? false // Pour le genre et niveau, aucune option n'est désactivée
+                    : isObjectif && !isSelected && tempSelected.length >= 2;
+
+                return (
+                  <TouchableOpacity
                     style={[
-                      styles.optionText,
-                      tempSelected.includes(item) && { color: "#FF5135" },
-                      isObjectif &&
-                        !tempSelected.includes(item) &&
-                        tempSelected.length >= 2 && { color: "#bbb" },
+                      styles.option,
+                      isSelected && { backgroundColor: "#F5F6FA" },
                     ]}
+                    onPress={() => toggleValue(item)}
+                    disabled={isDisabled}
                   >
-                    {item}
-                    {tempSelected.includes(item) ? "  ✔" : ""}
-                  </Text>
-                </TouchableOpacity>
-              )}
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isSelected && { color: "#FF5135" },
+                        isDisabled && { color: "#bbb" },
+                      ]}
+                    >
+                      {item}
+                      {isSelected ? "  ✔" : ""}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
             />
             <TouchableOpacity
               style={[
@@ -160,7 +190,7 @@ const sportsList = [
 ];
 
 const niveauxList = [
-  "N’a même pas commencé",
+  "N'a même pas commencé",
   "Extrêmement débutant",
   "Débutant",
   "Intermédiaire léger",
@@ -251,7 +281,10 @@ export default function CompleteProfile() {
         easing: Easing.in(Easing.exp),
       },
       (finished) => {
-        if (finished) runOnJS(router.replace)("/profile");
+        if (finished) {
+          // Utiliser router.back() pour un retour naturel
+          runOnJS(router.back)();
+        }
       }
     );
   };
@@ -335,6 +368,26 @@ export default function CompleteProfile() {
   };
 
   const handleSave = async () => {
+    // Validation du genre
+    if (!gender) {
+      Toast.show({
+        type: "error",
+        text1: "Genre manquant",
+        text2: "Sélectionne ton genre !",
+      });
+      return;
+    }
+
+    // Validation du niveau sportif
+    if (!niveau) {
+      Toast.show({
+        type: "error",
+        text1: "Niveau manquant",
+        text2: "Sélectionne ton niveau sportif !",
+      });
+      return;
+    }
+
     if (sports.length < 1) {
       Toast.show({
         type: "error",
@@ -371,6 +424,12 @@ export default function CompleteProfile() {
         text1: "Succès",
         text2: "Profil enregistré avec succès ✅",
       });
+
+      // Navigation après un délai
+      setTimeout(() => {
+        console.log("🔄 Navigating back to profile after save");
+        router.push("/profile");
+      }, 1000);
     } catch (error) {
       Toast.show({
         type: "error",
@@ -431,11 +490,6 @@ export default function CompleteProfile() {
               onSelect={setObjectifs}
               multiple
             />
-            {objectifs.length < 1 && (
-              <Text style={{ color: "#FF5135", marginBottom: 8 }}>
-                Choisis au moins 1 objectif
-              </Text>
-            )}
 
             <Text style={styles.sectionLabel}>Sports pratiqués</Text>
             <View style={styles.sportsGrid}>
@@ -462,6 +516,11 @@ export default function CompleteProfile() {
                 );
               })}
             </View>
+            {sports.length < 1 && (
+              <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
+                Choisis au moins 1 sport
+              </Text>
+            )}
 
             <Text style={styles.sectionLabel}>
               Disponibilité (jours / heures)
