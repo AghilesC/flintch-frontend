@@ -1,96 +1,164 @@
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
-import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-// import * as ImagePicker from "expo-image-picker"; // à activer si tu veux picker direct
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 const RegisterStepProfilePhoto = ({
   onNext,
+  profile_photo,
 }: {
-  onNext: (data: { profile_photo: string }) => void;
+  onNext: (data: {
+    profile_photo: string;
+    file: { uri: string; name: string; type: string } | null;
+  }) => void;
+  profile_photo?: string;
 }) => {
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useState(profile_photo || "");
+  const [photoFile, setPhotoFile] = useState<{
+    uri: string;
+    name: string;
+    type: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Pour une version sans picker (fais "skip" si tu veux)
-  const handlePickPhoto = async () => {
-    // Ici tu peux utiliser expo-image-picker (décommenter plus tard)
-    // const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
-    // if (!result.cancelled) {
-    //   setPhotoUri(result.uri);
-    // }
-    // Version démo : simulate upload
-    setPhotoUri("https://randomuser.me/api/portraits/men/1.jpg");
+  const pickImage = async () => {
+    try {
+      setLoading(true);
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission refusée", "Accès aux photos requis");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 5],
+        quality: 0.8,
+        base64: false, // important: pas de base64
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const uri = asset.uri;
+        const filename = uri.split("/").pop() ?? `photo-${Date.now()}.jpg`;
+        const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
+        const type = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+
+        const formattedFile = {
+          uri: Platform.OS === "web" ? uri : uri,
+          name: filename,
+          type,
+        };
+
+        setPhotoUri(uri);
+        setPhotoFile(formattedFile);
+      }
+    } catch (err) {
+      Alert.alert("Erreur", "Impossible de sélectionner la photo");
+      console.error("Erreur ImagePicker:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNext = () => {
+    if (!photoUri || !photoFile) {
+      Alert.alert("Erreur", "Aucune photo sélectionnée");
+      return;
+    }
+    onNext({ profile_photo: photoUri, file: photoFile });
   };
 
   return (
-    <View
-      style={{
-        flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        padding: 28,
-        backgroundColor: "#fff",
-      }}
-    >
-      <Text style={styles.headline}>Ajoute une photo de profil</Text>
-      <TouchableOpacity style={styles.photoButton} onPress={handlePickPhoto}>
-        {photoUri ? (
+    <View style={styles.container}>
+      <Text style={styles.title}>Ajoute une photo</Text>
+
+      <TouchableOpacity
+        style={styles.photoContainer}
+        onPress={pickImage}
+        activeOpacity={0.8}
+      >
+        {loading ? (
+          <ActivityIndicator size="large" color="#FF5135" />
+        ) : photoUri ? (
           <Image source={{ uri: photoUri }} style={styles.photo} />
         ) : (
-          <Text style={{ color: "#0E4A7B" }}>Choisir une photo</Text>
+          <>
+            <Ionicons name="add" size={40} color="#FF5135" />
+            <Text style={styles.photoText}>Choisir une photo</Text>
+          </>
         )}
       </TouchableOpacity>
+
       <TouchableOpacity
         style={[
-          styles.nextButton,
-          { backgroundColor: photoUri ? "#FF5135" : "#ddd" },
+          styles.button,
+          { backgroundColor: photoUri ? "#FF5135" : "#ccc" },
         ]}
-        disabled={!photoUri}
-        onPress={() => onNext({ profile_photo: photoUri || "" })}
-        activeOpacity={0.85}
+        onPress={handleNext}
+        disabled={!photoUri || !photoFile}
       >
-        <Text style={{ color: "#fff", fontSize: 22, fontWeight: "bold" }}>
-          Terminer
-        </Text>
+        <Text style={styles.buttonText}>Suivant</Text>
       </TouchableOpacity>
     </View>
   );
 };
 
+export default RegisterStepProfilePhoto;
+
 const styles = StyleSheet.create({
-  headline: {
-    fontSize: 25,
-    fontWeight: "700",
-    marginBottom: 32,
-    color: "#0E4A7B",
-    letterSpacing: -0.5,
-    textAlign: "center",
-  },
-  photoButton: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#e9eef6",
+  container: {
+    flex: 1,
+    padding: 32,
+    backgroundColor: "#fff",
     alignItems: "center",
-    justifyContent: "center",
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#092C44",
     marginBottom: 24,
-    overflow: "hidden",
+  },
+  photoContainer: {
+    width: 240,
+    height: 280,
+    borderRadius: 16,
     borderWidth: 2,
-    borderColor: "#0E4A7B",
+    borderColor: "#FF5135",
+    borderStyle: "dashed",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 32,
   },
   photo: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    resizeMode: "cover",
-  },
-  nextButton: {
     width: "100%",
-    padding: 16,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 2,
-    marginTop: 12,
+    height: "100%",
+    borderRadius: 14,
+  },
+  photoText: {
+    marginTop: 8,
+    fontSize: 16,
+    color: "#FF5135",
+  },
+  button: {
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 28,
+  },
+  buttonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
-
-export default RegisterStepProfilePhoto;

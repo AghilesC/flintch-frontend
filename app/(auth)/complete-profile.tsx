@@ -2,6 +2,8 @@ import DisponibiliteGrille from "@/components/DisponibiliteGrille";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
@@ -11,6 +13,7 @@ import {
   FlatList,
   Modal,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -18,27 +21,210 @@ import {
 } from "react-native";
 import Animated, {
   Easing,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withSequence,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import Toast from "react-native-toast-message";
 
-// ---- DropdownSelector pro ---- //
+const { width } = Dimensions.get("window");
+
+// Flintch Branding Colors
+const COLORS = {
+  primary: "#0E4A7B",
+  accent: "#FF5135",
+  gradientStart: "#0E4A7B",
+  gradientEnd: "#195A96",
+  skyBlue: "#4CCAF1",
+  midnight: "#092C44",
+  white: "#FFFFFF",
+  lightGray: "#F8F9FA",
+  cardShadow: "rgba(9, 44, 68, 0.15)",
+  overlay: "rgba(0, 0, 0, 0.4)",
+  success: "#4CAF50",
+  error: "#FF5135",
+  textSecondary: "#6C7B7F",
+  gradientCard1: "#FFFFFF",
+  gradientCard2: "#F0F7FF",
+};
+
+// ---- Animated Card Component ---- //
+interface AnimatedCardProps {
+  children: React.ReactNode;
+  delay?: number;
+  style?: any;
+}
+
+const AnimatedCard: React.FC<AnimatedCardProps> = ({
+  children,
+  delay = 0,
+  style,
+}) => {
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(30);
+  const scale = useSharedValue(0.95);
+
+  useEffect(() => {
+    // Reveal animation only
+    opacity.value = withDelay(
+      delay,
+      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) })
+    );
+    translateY.value = withDelay(
+      delay,
+      withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) })
+    );
+    scale.value = withDelay(
+      delay,
+      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) })
+    );
+  }, [delay]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }, { scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View style={[animatedStyle, style]}>
+      <LinearGradient
+        colors={[COLORS.gradientCard1, COLORS.gradientCard2]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.cardGradient}
+      >
+        {children}
+      </LinearGradient>
+    </Animated.View>
+  );
+};
+
+// ---- Animated Sport Chip ---- //
+interface AnimatedSportChipProps {
+  sport: string;
+  selected: boolean;
+  onPress: () => void;
+}
+
+const AnimatedSportChip: React.FC<AnimatedSportChipProps> = ({
+  sport,
+  selected,
+  onPress,
+}) => {
+  const scale = useSharedValue(1);
+  const rotation = useSharedValue(0);
+
+  const handlePress = () => {
+    // Haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Bouncy animation
+    scale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withSpring(1.1, { damping: 6, stiffness: 200 }),
+      withSpring(1, { damping: 8, stiffness: 200 })
+    );
+
+    // Subtle rotation on selection
+    if (!selected) {
+      rotation.value = withSequence(
+        withTiming(5, { duration: 150 }),
+        withTiming(-5, { duration: 150 }),
+        withTiming(0, { duration: 150 })
+      );
+    }
+
+    onPress();
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }, { rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <TouchableOpacity
+        style={[styles.sportChip, selected && styles.sportChipSelected]}
+        onPress={handlePress}
+        activeOpacity={0.8}
+      >
+        <Text
+          style={[
+            styles.sportChipText,
+            selected && styles.sportChipTextSelected,
+          ]}
+        >
+          {sport}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+// ---- Success Animation Component ---- //
+const SuccessAnimation: React.FC<{ visible: boolean }> = ({ visible }) => {
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const rotation = useSharedValue(0);
+
+  useEffect(() => {
+    if (visible) {
+      scale.value = withSequence(
+        withTiming(0, { duration: 0 }),
+        withSpring(1.2, { damping: 6, stiffness: 200 }),
+        withSpring(1, { damping: 8, stiffness: 200 })
+      );
+      opacity.value = withTiming(1, { duration: 300 });
+      rotation.value = withSequence(
+        withTiming(360, { duration: 600, easing: Easing.out(Easing.cubic) }),
+        withTiming(0, { duration: 0 })
+      );
+
+      // Auto hide after animation
+      setTimeout(() => {
+        opacity.value = withTiming(0, { duration: 500 });
+        scale.value = withTiming(0, { duration: 500 });
+      }, 2000);
+    }
+  }, [visible]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }, { rotate: `${rotation.value}deg` }],
+  }));
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View style={[styles.successOverlay, animatedStyle]}>
+      <View style={styles.successContainer}>
+        <Ionicons name="checkmark-circle" size={80} color={COLORS.success} />
+        <Text style={styles.successText}>Profil sauvegardé !</Text>
+      </View>
+    </Animated.View>
+  );
+};
+
+// ---- Enhanced DropdownSelector ---- //
 interface DropdownSelectorProps {
   label: string;
   options: string[];
   selected: string[];
   onSelect: (value: string[]) => void;
   multiple?: boolean;
+  icon?: string;
 }
+
 const DropdownSelector: React.FC<DropdownSelectorProps> = ({
   label,
   options,
   selected,
   onSelect,
   multiple = false,
+  icon,
 }) => {
   const [visible, setVisible] = useState(false);
   const isObjectif = label === "Objectif(s)";
@@ -46,14 +232,22 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
   const isNiveau = label === "Niveau sportif";
   const [tempSelected, setTempSelected] = useState<string[]>(selected);
 
+  const focusScale = useSharedValue(1);
+
   const openModal = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    focusScale.value = withSequence(
+      withTiming(0.98, { duration: 100 }),
+      withTiming(1, { duration: 100 })
+    );
     setTempSelected(selected);
     setVisible(true);
   };
 
   const toggleValue = (val: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
     if (isGenre || isNiveau) {
-      // Pour le genre et niveau : sélection unique
       setTempSelected([val]);
     } else if (tempSelected.includes(val)) {
       setTempSelected(tempSelected.filter((v) => v !== val));
@@ -63,7 +257,6 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
     }
   };
 
-  // Validation : Genre et Niveau doivent avoir exactement 1 choix, Objectifs au moins 1
   const canValidate =
     isGenre || isNiveau
       ? tempSelected.length === 1
@@ -71,90 +264,136 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
 
   const handleValidate = () => {
     if (canValidate) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSelect(tempSelected);
       setVisible(false);
     }
   };
 
-  return (
-    <>
-      <Text style={styles.label}>{label}</Text>
-      <TouchableOpacity
-        style={styles.selector}
-        onPress={openModal}
-        activeOpacity={0.85}
-      >
-        <Text style={{ color: selected.length > 0 ? "#092C44" : "#aaa" }}>
-          {selected.length > 0
-            ? selected.join(", ")
-            : `Sélectionner ${label.toLowerCase()}`}
-        </Text>
-        <Ionicons name="chevron-down" size={18} color="#092C44" />
-      </TouchableOpacity>
+  const getPlaceholder = () => {
+    if (isGenre) return "Ton genre";
+    if (isNiveau) return "Ton niveau";
+    if (isObjectif) return "Tes objectifs";
+    return `Sélectionner ${label.toLowerCase()}`;
+  };
 
-      {/* Messages d'aide */}
-      {isGenre && selected.length < 1 && (
-        <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
-          Choisis ton genre
-        </Text>
-      )}
-      {isNiveau && selected.length < 1 && (
-        <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
-          Choisis ton niveau sportif
-        </Text>
-      )}
-      {isObjectif && selected.length < 1 && (
-        <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
-          Choisis au moins 1 objectif
-        </Text>
-      )}
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: focusScale.value }],
+  }));
+
+  return (
+    <View style={styles.selectorContainer}>
+      <Text style={styles.selectorLabel}>{label}</Text>
+      <Animated.View style={animatedStyle}>
+        <TouchableOpacity
+          style={[
+            styles.selector,
+            selected.length > 0 && styles.selectorSelected,
+          ]}
+          onPress={openModal}
+          activeOpacity={0.7}
+        >
+          <View style={styles.selectorContent}>
+            {icon && (
+              <Ionicons
+                name={icon as any}
+                size={20}
+                color={
+                  selected.length > 0 ? COLORS.primary : COLORS.textSecondary
+                }
+                style={styles.selectorIcon}
+              />
+            )}
+            <Text
+              style={[
+                styles.selectorText,
+                selected.length > 0 && styles.selectorTextSelected,
+              ]}
+              numberOfLines={1}
+            >
+              {selected.length > 0 ? selected.join(", ") : getPlaceholder()}
+            </Text>
+          </View>
+          <Ionicons
+            name="chevron-down"
+            size={20}
+            color={selected.length > 0 ? COLORS.primary : COLORS.textSecondary}
+          />
+        </TouchableOpacity>
+      </Animated.View>
 
       <Modal visible={visible} transparent animationType="fade">
-        <View style={styles.overlay}>
-          <View style={styles.modal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                Sélectionner {label.toLowerCase()}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setVisible(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
             <FlatList
               data={options}
               keyExtractor={(item) => item}
+              showsVerticalScrollIndicator={false}
               renderItem={({ item }) => {
                 const isSelected = tempSelected.includes(item);
                 const isDisabled =
                   isGenre || isNiveau
-                    ? false // Pour le genre et niveau, aucune option n'est désactivée
+                    ? false
                     : isObjectif && !isSelected && tempSelected.length >= 2;
 
                 return (
                   <TouchableOpacity
                     style={[
-                      styles.option,
-                      isSelected && { backgroundColor: "#F5F6FA" },
+                      styles.modalOption,
+                      isSelected && styles.modalOptionSelected,
+                      isDisabled && styles.modalOptionDisabled,
                     ]}
                     onPress={() => toggleValue(item)}
                     disabled={isDisabled}
+                    activeOpacity={0.7}
                   >
                     <Text
                       style={[
-                        styles.optionText,
-                        isSelected && { color: "#FF5135" },
-                        isDisabled && { color: "#bbb" },
+                        styles.modalOptionText,
+                        isSelected && styles.modalOptionTextSelected,
+                        isDisabled && styles.modalOptionTextDisabled,
                       ]}
                     >
                       {item}
-                      {isSelected ? "  ✔" : ""}
                     </Text>
+                    {isSelected && (
+                      <Ionicons
+                        name="checkmark"
+                        size={20}
+                        color={COLORS.accent}
+                      />
+                    )}
                   </TouchableOpacity>
                 );
               }}
             />
+
             <TouchableOpacity
               style={[
-                styles.modalBtn,
-                !canValidate && { backgroundColor: "#ddd" },
+                styles.modalValidateButton,
+                !canValidate && styles.modalValidateButtonDisabled,
               ]}
               disabled={!canValidate}
               onPress={handleValidate}
+              activeOpacity={0.8}
             >
               <Text
-                style={[styles.modalBtnText, !canValidate && { color: "#aaa" }]}
+                style={[
+                  styles.modalValidateButtonText,
+                  !canValidate && styles.modalValidateButtonTextDisabled,
+                ]}
               >
                 Valider
               </Text>
@@ -162,7 +401,7 @@ const DropdownSelector: React.FC<DropdownSelectorProps> = ({
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 };
 
@@ -231,76 +470,9 @@ export default function CompleteProfile() {
   const [availability, setAvailability] = useState<any>(null);
   const [location, setLocation] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const router = useRouter();
 
-  // --- Animation valeurs ---
-  const screenHeight = Dimensions.get("window").height;
-  const translateY = useSharedValue(screenHeight * 0.28); // start un peu en bas
-  const opacity = useSharedValue(0.6);
-  const scale = useSharedValue(0.96);
-  const shadow = useSharedValue(2);
-
-  // Anim: entrée smooth (up + scale)
-  useEffect(() => {
-    translateY.value = withTiming(0, {
-      duration: 420,
-      easing: Easing.out(Easing.exp),
-    });
-    opacity.value = withTiming(1, {
-      duration: 540,
-      easing: Easing.out(Easing.cubic),
-    });
-    scale.value = withTiming(1, {
-      duration: 420,
-      easing: Easing.out(Easing.exp),
-    });
-    shadow.value = withTiming(12, {
-      duration: 520,
-      easing: Easing.out(Easing.cubic),
-    });
-  }, []);
-
-  // Anim: fermeture
-  const handleGoBack = () => {
-    opacity.value = withTiming(0.2, {
-      duration: 250,
-      easing: Easing.in(Easing.exp),
-    });
-    scale.value = withTiming(0.94, {
-      duration: 340,
-      easing: Easing.in(Easing.exp),
-    });
-    shadow.value = withTiming(1, {
-      duration: 300,
-      easing: Easing.in(Easing.exp),
-    });
-    translateY.value = withTiming(
-      screenHeight * 0.25,
-      {
-        duration: 370,
-        easing: Easing.in(Easing.exp),
-      },
-      (finished) => {
-        if (finished) {
-          // Utiliser router.back() pour un retour naturel
-          runOnJS(router.back)();
-        }
-      }
-    );
-  };
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }, { scale: scale.value }],
-    opacity: opacity.value,
-    shadowOpacity: 0.16 + 0.16 * (shadow.value / 12),
-    shadowRadius: shadow.value,
-    shadowColor: "#000",
-    elevation: shadow.value,
-    borderTopLeftRadius: 38,
-    borderTopRightRadius: 38,
-  }));
-
-  // Utilitaire pour parser string/array
   const parseArray = (val: any) => {
     if (Array.isArray(val)) return val;
     if (typeof val === "string" && val.startsWith("[")) {
@@ -336,30 +508,31 @@ export default function CompleteProfile() {
         Toast.show({
           type: "error",
           text1: "Erreur",
-          text2: "Impossible de charger les données ❌",
+          text2: "Impossible de charger les données",
         });
       }
     })();
   }, []);
 
-  // Limiter sports à min 1, max 5
   const toggleSport = (sport: string) => {
     if (sports.includes(sport)) {
       if (sports.length === 1) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Toast.show({
           type: "info",
-          text1: "Choix minimum",
-          text2: "Tu dois sélectionner au moins 1 sport 🏀",
+          text1: "Minimum requis",
+          text2: "Au moins 1 sport doit être sélectionné",
         });
         return;
       }
       setSports((prev) => prev.filter((s) => s !== sport));
     } else {
       if (sports.length >= 5) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         Toast.show({
           type: "info",
           text1: "Maximum atteint",
-          text2: "Tu peux sélectionner jusqu'à 5 sports maximum !",
+          text2: "5 sports maximum",
         });
         return;
       }
@@ -368,43 +541,19 @@ export default function CompleteProfile() {
   };
 
   const handleSave = async () => {
-    // Validation du genre
-    if (!gender) {
+    if (!gender || !niveau || sports.length < 1 || objectifs.length < 1) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Toast.show({
         type: "error",
-        text1: "Genre manquant",
-        text2: "Sélectionne ton genre !",
+        text1: "Formulaire incomplet",
+        text2: "Veuillez remplir tous les champs",
       });
       return;
     }
 
-    // Validation du niveau sportif
-    if (!niveau) {
-      Toast.show({
-        type: "error",
-        text1: "Niveau manquant",
-        text2: "Sélectionne ton niveau sportif !",
-      });
-      return;
-    }
-
-    if (sports.length < 1) {
-      Toast.show({
-        type: "error",
-        text1: "Sport manquant",
-        text2: "Sélectionne au moins 1 sport !",
-      });
-      return;
-    }
-    if (objectifs.length < 1) {
-      Toast.show({
-        type: "error",
-        text1: "Objectif manquant",
-        text2: "Sélectionne au moins 1 objectif !",
-      });
-      return;
-    }
     setLoading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     try {
       const token = await AsyncStorage.getItem("token");
       await axios.post(
@@ -419,304 +568,485 @@ export default function CompleteProfile() {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      Toast.show({
-        type: "success",
-        text1: "Succès",
-        text2: "Profil enregistré avec succès ✅",
-      });
 
-      // Navigation après un délai
+      setShowSuccess(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
       setTimeout(() => {
-        console.log("🔄 Navigating back to profile after save");
         router.push("/profile");
-      }, 1000);
+      }, 2500);
     } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Toast.show({
         type: "error",
         text1: "Erreur",
-        text2: "Une erreur est survenue 😥",
+        text2: "Une erreur est survenue",
       });
     }
     setLoading(false);
   };
 
+  const isFormValid =
+    gender && niveau && sports.length > 0 && objectifs.length > 0;
+
   return (
-    <View style={{ flex: 1, backgroundColor: "#F7F8FA" }}>
-      {/* Un backdrop semi-transparent */}
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          StyleSheet.absoluteFillObject,
-          {
-            backgroundColor: "#000",
-            opacity: opacity.value * 0.18,
-            zIndex: 1,
-          },
-        ]}
-      />
-      {/* Le panneau animé */}
-      <Animated.View style={[{ flex: 1, zIndex: 2 }, animatedStyle]}>
-        <ScrollView contentContainerStyle={styles.bgContainer}>
-          {/* HEADER */}
-          <View style={styles.headerCard}>
-            <TouchableOpacity onPress={handleGoBack}>
-              <Ionicons
-                name="arrow-back"
-                size={24}
-                color="#FF5135"
-                style={styles.backIcon}
-              />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Modifier le profil</Text>
-          </View>
-          {/* MAIN CARD */}
-          <View style={styles.mainCard}>
-            <DropdownSelector
-              label="Genre"
-              selected={gender ? [gender] : []}
-              options={["Homme", "Femme", "Non-binaire", "Autre"]}
-              onSelect={(arr) => setGender(arr[0] || "")}
-            />
-            <DropdownSelector
-              label="Niveau sportif"
-              selected={niveau ? [niveau] : []}
-              options={niveauxList}
-              onSelect={(arr) => setNiveau(arr[0] || "")}
-            />
-            <DropdownSelector
-              label="Objectif(s)"
-              selected={objectifs}
-              options={objectifsList}
-              onSelect={setObjectifs}
-              multiple
-            />
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
-            <Text style={styles.sectionLabel}>Sports pratiqués</Text>
-            <View style={styles.sportsGrid}>
-              {sportsList.map((sport, i) => {
-                const selected = sports.includes(sport);
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    onPress={() => toggleSport(sport)}
-                    style={[
-                      styles.sportPill,
-                      selected && styles.sportPillSelected,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.sportPillText,
-                        selected && styles.sportPillTextSelected,
-                      ]}
-                    >
-                      {sport}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+      {/* Animated Header */}
+      <View style={styles.headerContainer}>
+        <View style={styles.headerBackground}>
+          <View style={styles.header}>
+            <View style={styles.headerContent}>
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.back();
+                }}
+                style={styles.backButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
+              </TouchableOpacity>
+
+              <View style={styles.titleContainer}>
+                <Text style={styles.headerTitle}>Modifier le profil</Text>
+              </View>
+
+              <View style={styles.rightSpacer} />
             </View>
-            {sports.length < 1 && (
-              <Text style={{ color: "#FF5135", marginBottom: 8, fontSize: 13 }}>
-                Choisis au moins 1 sport
+          </View>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollViewContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Personal Info Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Informations personnelles</Text>
+          <AnimatedCard delay={200}>
+            <View style={styles.card}>
+              <DropdownSelector
+                label="Genre"
+                selected={gender ? [gender] : []}
+                options={["Homme", "Femme", "Non-binaire", "Autre"]}
+                onSelect={(arr) => setGender(arr[0] || "")}
+                icon="person-outline"
+              />
+              <DropdownSelector
+                label="Niveau sportif"
+                selected={niveau ? [niveau] : []}
+                options={niveauxList}
+                onSelect={(arr) => setNiveau(arr[0] || "")}
+                icon="fitness-outline"
+              />
+            </View>
+          </AnimatedCard>
+        </View>
+
+        {/* Goals Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tes objectifs</Text>
+          <AnimatedCard delay={400}>
+            <View style={styles.card}>
+              <DropdownSelector
+                label="Objectif(s)"
+                selected={objectifs}
+                options={objectifsList}
+                onSelect={setObjectifs}
+                multiple
+                icon="heart-outline"
+              />
+              <Text style={styles.helperText}>
+                Sélectionne jusqu'à 2 objectifs principaux
               </Text>
-            )}
-
-            <Text style={styles.sectionLabel}>
-              Disponibilité (jours / heures)
-            </Text>
-            <View style={styles.dispoCard}>
-              <DisponibiliteGrille
-                onChange={setAvailability}
-                initial={availability}
-              />
             </View>
-          </View>
+          </AnimatedCard>
+        </View>
 
-          <TouchableOpacity
-            onPress={handleSave}
-            disabled={loading}
-            style={styles.saveBtn}
-            activeOpacity={0.85}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.saveBtnText}>Enregistrer</Text>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
-      </Animated.View>
+        {/* Sports Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Sports pratiqués</Text>
+          <AnimatedCard delay={600}>
+            <View style={styles.card}>
+              <Text style={styles.subsectionTitle}>
+                Choisis tes sports favoris ({sports.length}/5)
+              </Text>
+              <View style={styles.sportsGrid}>
+                {sportsList.map((sport, i) => (
+                  <AnimatedSportChip
+                    key={i}
+                    sport={sport}
+                    selected={sports.includes(sport)}
+                    onPress={() => toggleSport(sport)}
+                  />
+                ))}
+              </View>
+              <Text style={styles.helperText}>
+                Minimum 1 sport, maximum 5 sports
+              </Text>
+            </View>
+          </AnimatedCard>
+        </View>
+
+        {/* Availability Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Disponibilités</Text>
+          <AnimatedCard delay={800}>
+            <View style={styles.card}>
+              <Text style={styles.subsectionTitle}>
+                Quand es-tu disponible pour t'entraîner ?
+              </Text>
+              <View style={styles.availabilityContainer}>
+                <DisponibiliteGrille
+                  onChange={setAvailability}
+                  initial={availability}
+                />
+              </View>
+            </View>
+          </AnimatedCard>
+        </View>
+      </ScrollView>
+
+      {/* Save Button */}
+      <View style={styles.bottomContainer}>
+        <TouchableOpacity
+          onPress={handleSave}
+          disabled={loading || !isFormValid}
+          style={[
+            styles.saveButton,
+            (!isFormValid || loading) && styles.saveButtonDisabled,
+          ]}
+          activeOpacity={0.8}
+        >
+          {loading ? (
+            <ActivityIndicator color={COLORS.white} size="small" />
+          ) : (
+            <>
+              <Text style={styles.saveButtonText}>Enregistrer</Text>
+              <Ionicons name="checkmark" size={20} color={COLORS.white} />
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Success Animation Overlay */}
+      <SuccessAnimation visible={showSuccess} />
     </View>
   );
 }
 
-// ---- STYLES ----
 const styles = StyleSheet.create({
-  bgContainer: {
-    backgroundColor: "#F7F8FA",
-    padding: 0,
-    flexGrow: 1,
-    alignItems: "center",
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.lightGray,
   },
-  headerCard: {
+  headerContainer: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    borderRadius: 0, // Pas de border radius
+  },
+  headerBackground: {
+    backgroundColor: COLORS.white,
+    borderRadius: 0, // Pas de border radius
+  },
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingTop: 22,
-    paddingBottom: 10,
-    paddingHorizontal: 20,
-    backgroundColor: "#fff",
-    width: "100%",
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    elevation: 2,
-    zIndex: 10,
-    borderTopLeftRadius: 38,
-    borderTopRightRadius: 38,
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 10, // Encore plus réduit
+    paddingBottom: 8, // Très fin
+    backgroundColor: "transparent",
   },
-  backIcon: {
-    marginRight: 12,
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.lightGray,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  titleContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
-    color: "#0E4A7B",
+    color: COLORS.primary,
+    textAlign: "center",
   },
-  mainCard: {
-    backgroundColor: "#fff",
-    width: "94%",
-    borderRadius: 28,
+  rightSpacer: {
+    width: 40, // Même largeur que le bouton retour pour équilibrer
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollViewContent: {
+    paddingBottom: 120,
+  },
+  section: {
+    marginTop: 24,
+    paddingHorizontal: 16,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: COLORS.primary,
+    marginBottom: 16,
+  },
+  cardGradient: {
+    borderRadius: 20,
     padding: 20,
-    marginTop: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  card: {
+    backgroundColor: "transparent",
+  },
+  selectorContainer: {
     marginBottom: 20,
-    elevation: 4,
-    shadowColor: "#091e42",
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 5 },
-    shadowRadius: 18,
   },
-  label: {
+  selectorLabel: {
+    fontSize: 16,
     fontWeight: "600",
-    marginBottom: 5,
-    color: "#092C44",
-    fontSize: 15,
-  },
-  sectionLabel: {
-    fontWeight: "700",
+    color: COLORS.midnight,
     marginBottom: 8,
-    marginTop: 18,
-    color: "#0E4A7B",
-    fontSize: 17,
   },
   selector: {
-    borderWidth: 1.2,
-    borderColor: "#eee",
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 13,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#F8FAFD",
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.14)",
-    justifyContent: "center",
-    padding: 28,
-  },
-  modal: {
-    backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     borderRadius: 16,
-    paddingVertical: 8,
-    maxHeight: 400,
-    elevation: 7,
+    borderWidth: 2,
+    borderColor: "#E5E7EB",
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
   },
-  option: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+  selectorSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: "rgba(240, 247, 255, 0.9)",
   },
-  optionText: {
+  selectorContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  selectorIcon: {
+    marginRight: 12,
+  },
+  selectorText: {
     fontSize: 16,
-    color: "#0E4A7B",
+    color: COLORS.textSecondary,
+    flex: 1,
   },
-  modalBtn: {
-    backgroundColor: "#FF5135",
-    padding: 13,
-    borderRadius: 10,
-    margin: 14,
+  selectorTextSelected: {
+    color: COLORS.primary,
+    fontWeight: "500",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: COLORS.overlay,
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    maxHeight: "80%",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: COLORS.primary,
+  },
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.lightGray,
+    justifyContent: "center",
     alignItems: "center",
   },
-  modalBtnText: {
-    color: "#fff",
-    fontWeight: "bold",
+  modalOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  modalOptionSelected: {
+    backgroundColor: "#FFF7F5",
+  },
+  modalOptionDisabled: {
+    opacity: 0.5,
+  },
+  modalOptionText: {
     fontSize: 16,
-    letterSpacing: 0.6,
+    color: COLORS.midnight,
+    flex: 1,
+  },
+  modalOptionTextSelected: {
+    color: COLORS.accent,
+    fontWeight: "500",
+  },
+  modalOptionTextDisabled: {
+    color: COLORS.textSecondary,
+  },
+  modalValidateButton: {
+    backgroundColor: COLORS.accent,
+    marginHorizontal: 20,
+    marginVertical: 16,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: "center",
+  },
+  modalValidateButtonDisabled: {
+    backgroundColor: "#E5E7EB",
+  },
+  modalValidateButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.white,
+  },
+  modalValidateButtonTextDisabled: {
+    color: COLORS.textSecondary,
+  },
+  subsectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: COLORS.midnight,
+    marginBottom: 16,
+  },
+  helperText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginTop: 8,
+    fontStyle: "italic",
   },
   sportsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+  },
+  sportChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: "#E5E7EB",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
     marginBottom: 8,
-    marginTop: 0,
   },
-  sportPill: {
-    paddingVertical: 8,
-    paddingHorizontal: 17,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: "#ccc",
-    backgroundColor: "#F6F8FB",
-    margin: 4,
-    alignItems: "center",
+  sportChipSelected: {
+    borderColor: COLORS.accent,
+    backgroundColor: COLORS.accent,
   },
-  sportPillSelected: {
-    backgroundColor: "#FF5135",
-    borderColor: "#FF5135",
-    shadowColor: "#FF5135",
-    shadowOpacity: 0.09,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 5,
+  sportChipText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: COLORS.midnight,
   },
-  sportPillText: {
-    fontSize: 16,
-    color: "#092C44",
+  sportChipTextSelected: {
+    color: COLORS.white,
     fontWeight: "600",
   },
-  sportPillTextSelected: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  dispoCard: {
-    backgroundColor: "#F5F6FA",
-    borderRadius: 17,
-    padding: 10,
-    marginVertical: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  saveBtn: {
-    backgroundColor: "#FF5135",
+  availabilityContainer: {
+    backgroundColor: "rgba(248, 249, 250, 0.8)",
+    borderRadius: 16,
     padding: 16,
-    borderRadius: 24,
-    marginTop: 10,
-    marginBottom: 30,
-    alignItems: "center",
-    width: "88%",
-    shadowColor: "#FF5135",
-    shadowOpacity: 0.17,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 2,
   },
-  saveBtnText: {
-    color: "#fff",
-    fontWeight: "bold",
+  bottomContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    backdropFilter: "blur(10px)",
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    paddingBottom: 34,
+  },
+  saveButton: {
+    backgroundColor: COLORS.accent,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: 20,
+    shadowColor: COLORS.accent,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  saveButtonDisabled: {
+    backgroundColor: "#E5E7EB",
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  saveButtonText: {
     fontSize: 18,
-    letterSpacing: 0.5,
+    fontWeight: "600",
+    color: COLORS.white,
+    marginRight: 8,
+  },
+  successOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "transparent", // Enlevé le background sombre
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  successContainer: {
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 40,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  successText: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.success,
+    marginTop: 16,
   },
 });

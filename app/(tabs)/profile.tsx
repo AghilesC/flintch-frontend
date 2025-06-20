@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -17,6 +18,7 @@ import Animated, {
   withDelay,
   withRepeat,
   withSequence,
+  withSpring,
   withTiming,
 } from "react-native-reanimated";
 
@@ -92,6 +94,10 @@ function AnimatedObjectif({
   const translateY = useSharedValue(25);
   const scale = useSharedValue(0.7);
 
+  // ✨ EFFET BOUNCY QUAND ON APPUIE
+  const touchScale = useSharedValue(1);
+  const rotation = useSharedValue(0);
+
   useEffect(() => {
     // Ton glow original
     glow.value = withDelay(
@@ -120,6 +126,25 @@ function AnimatedObjectif({
     );
   }, []);
 
+  const handlePress = () => {
+    // Haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Bouncy animation
+    touchScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withSpring(1.1, { damping: 6, stiffness: 200 }),
+      withSpring(1, { damping: 8, stiffness: 200 })
+    );
+
+    // Subtle rotation
+    rotation.value = withSequence(
+      withTiming(3, { duration: 150 }),
+      withTiming(-3, { duration: 150 }),
+      withTiming(0, { duration: 150 })
+    );
+  };
+
   const animatedStyle = useAnimatedStyle(() => ({
     // TON GLOW ORIGINAL
     shadowColor: "#FF5135",
@@ -127,19 +152,24 @@ function AnimatedObjectif({
     shadowRadius: 18 + 6 * glow.value,
     shadowOffset: { width: 0, height: 2 },
     elevation: 7 * glow.value,
-    // NOUVELLE ANIMATION POP-IN
+    // NOUVELLE ANIMATION POP-IN + BOUNCY
     opacity: opacity.value,
     transform: [
       { translateY: translateY.value },
-      { scale: (0.96 + 0.08 * glow.value) * scale.value }, // Combine glow + pop-in
+      { scale: (0.96 + 0.08 * glow.value) * scale.value * touchScale.value },
+      { rotate: `${rotation.value}deg` },
     ],
   }));
 
   return (
-    <AnimatedView style={[styles.objectifTag, animatedStyle]}>
+    <AnimatedTouchableOpacity
+      style={[styles.objectifTag, animatedStyle]}
+      onPress={handlePress}
+      activeOpacity={0.8}
+    >
       <Text style={styles.objectifEmoji}>{icon}</Text>
       <Text style={styles.objectifText}>{text}</Text>
-    </AnimatedView>
+    </AnimatedTouchableOpacity>
   );
 }
 
@@ -157,6 +187,10 @@ function AnimatedSportTag({
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(20);
   const scale = useSharedValue(0.8);
+
+  // ✨ EFFET BOUNCY QUAND ON APPUIE
+  const touchScale = useSharedValue(1);
+  const rotation = useSharedValue(0);
 
   useEffect(() => {
     // Ton glow original
@@ -185,6 +219,25 @@ function AnimatedSportTag({
     );
   }, []);
 
+  const handlePress = () => {
+    // Haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Bouncy animation
+    touchScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withSpring(1.1, { damping: 6, stiffness: 200 }),
+      withSpring(1, { damping: 8, stiffness: 200 })
+    );
+
+    // Subtle rotation
+    rotation.value = withSequence(
+      withTiming(-5, { duration: 150 }),
+      withTiming(5, { duration: 150 }),
+      withTiming(0, { duration: 150 })
+    );
+  };
+
   const animatedStyle = useAnimatedStyle(() => ({
     // TON GLOW ORIGINAL
     shadowColor: "#4CCAF1", // BLEU!
@@ -192,23 +245,29 @@ function AnimatedSportTag({
     shadowRadius: 18 + 6 * glow.value,
     shadowOffset: { width: 0, height: 2 },
     elevation: 7 * glow.value,
-    // NOUVELLE ANIMATION POP-IN
+    // NOUVELLE ANIMATION POP-IN + BOUNCY
     opacity: opacity.value,
     transform: [
       { translateY: translateY.value },
-      { scale: (0.96 + 0.08 * glow.value) * scale.value }, // Combine glow + pop-in
+      { scale: (0.96 + 0.08 * glow.value) * scale.value * touchScale.value },
+      { rotate: `${rotation.value}deg` },
     ],
   }));
 
   return (
-    <AnimatedView style={[styles.sportTag, animatedStyle]}>
+    <AnimatedTouchableOpacity
+      style={[styles.sportTag, animatedStyle]}
+      onPress={handlePress}
+      activeOpacity={0.8}
+    >
       <Text style={styles.sportText}>{text}</Text>
-    </AnimatedView>
+    </AnimatedTouchableOpacity>
   );
 }
 
 export default function ProfileScreen() {
   const [user, setUser] = useState<any>(null);
+  const [userPhotos, setUserPhotos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -275,21 +334,58 @@ export default function ProfileScreen() {
       setUser(response.data);
     } catch (error) {
       console.error("Erreur fetch user:", error);
+    }
+  };
+
+  // ----------- Fetch Photos utilisateur ----------
+  const fetchUserPhotos = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      console.log(
+        "🔑 Token pour photos:",
+        token ? "✅ Présent" : "❌ Manquant"
+      );
+
+      const response = await axios.get("http://localhost:8000/api/photos", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      console.log("📸 Response photos:", response.data);
+      console.log("📸 Status:", response.status);
+
+      if (response.data.status) {
+        console.log("📸 Photos trouvées:", response.data.photos.length);
+        setUserPhotos(response.data.photos);
+
+        // Log détaillé des photos
+        response.data.photos.forEach((photo: any, index: number) => {
+          console.log(`📷 Photo ${index + 1}:`, {
+            id: photo.id,
+            is_main: photo.is_main,
+            photo_url: photo.url,
+          });
+        });
+      } else {
+        console.log("📸 Aucune photo ou erreur API");
+        setUserPhotos([]);
+      }
+    } catch (error: any) {
+      console.error("💥 Erreur fetch photos:", error);
+      console.error("💥 Response:", error.response?.data);
+      console.error("💥 Status:", error.response?.status);
+      setUserPhotos([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✨ Rechargement avec interval optimisé pour mise à jour temps réel
+  // ✨ Rechargement initial
   useEffect(() => {
-    fetchUser();
-
-    // Vérifier les mises à jour toutes les 1 seconde pour plus de réactivité
-    const interval = setInterval(() => {
-      fetchUser();
-    }, 1000);
-
-    return () => clearInterval(interval);
+    const loadData = async () => {
+      await fetchUser();
+      await fetchUserPhotos();
+    };
+    loadData();
   }, []);
 
   // Rechargement quand user change
@@ -396,6 +492,34 @@ export default function ProfileScreen() {
     return Math.abs(new Date(diff).getUTCFullYear() - 1970);
   };
 
+  // ----------- Obtenir la photo principale ----------
+  const getMainPhoto = () => {
+    console.log("🔍 Recherche photo principale...");
+    console.log("📊 User photos disponibles:", userPhotos.length);
+    console.log("📊 User profile_photo:", user?.profile_photo);
+
+    // ✅ Photo principale dans les photos uploadées
+    const mainPhoto = userPhotos.find((photo) => photo.is_main);
+    if (mainPhoto) {
+      console.log("✅ Photo principale trouvée (is_main):", mainPhoto.url);
+      return mainPhoto.url;
+    }
+
+    // Fallback 1
+    if (userPhotos.length > 0) {
+      console.log("✅ Première photo utilisée:", userPhotos[0].url);
+      return userPhotos[0].url;
+    }
+
+    // Fallback 2
+    if (user?.profile_photo) {
+      return user.profile_photo;
+    }
+
+    console.log("❌ Aucune photo trouvée");
+    return null;
+  };
+
   const renderSports = () => {
     if (!user.sports || user.sports.length === 0) {
       return (
@@ -449,6 +573,8 @@ export default function ProfileScreen() {
     );
   }
 
+  const mainPhotoUrl = getMainPhoto();
+
   return (
     <View style={styles.container}>
       {/* HERO + Barre circulaire avec battement de cœur */}
@@ -485,18 +611,21 @@ export default function ProfileScreen() {
               await router.push("../(auth)/complete-profile");
               setLoading(true);
               await fetchUser();
+              await fetchUserPhotos();
             }}
             activeOpacity={0.85}
           >
-            <Image
-              source={{
-                uri: user?.profile_photo?.startsWith("http")
-                  ? user.profile_photo
-                  : `http://localhost:8000/storage/${user?.profile_photo}`,
-              }}
-              style={styles.profileImage}
-              resizeMode="cover"
-            />
+            {mainPhotoUrl ? (
+              <Image
+                source={{ uri: mainPhotoUrl }}
+                style={styles.profileImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.placeholderImage}>
+                <Ionicons name="person" size={60} color="#ccc" />
+              </View>
+            )}
           </TouchableOpacity>
 
           {/* Icône d'édition séparée */}
@@ -506,6 +635,7 @@ export default function ProfileScreen() {
               await router.push("../(auth)/complete-profile");
               setLoading(true);
               await fetchUser();
+              await fetchUserPhotos();
             }}
             activeOpacity={0.9}
           >
@@ -617,6 +747,17 @@ const styles = StyleSheet.create({
     height: CIRCLE_SIZE - 26,
     borderRadius: (CIRCLE_SIZE - 26) / 2,
     overflow: "hidden",
+  },
+  placeholderImage: {
+    width: CIRCLE_SIZE - 26,
+    height: CIRCLE_SIZE - 26,
+    borderRadius: (CIRCLE_SIZE - 26) / 2,
+    backgroundColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#e0e0e0",
+    borderStyle: "dashed",
   },
   editIcon: {
     position: "absolute",
