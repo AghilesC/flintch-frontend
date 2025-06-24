@@ -51,15 +51,27 @@ interface UserProfile {
 const ExploreScreen = () => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
 
   const position = useRef(new Animated.ValueXY()).current;
   const swipeAnimatedValue = useRef(new Animated.Value(0)).current;
 
+  // Animation values pour les boutons
+  const rejectButtonScale = useRef(new Animated.Value(1)).current;
+  const superLikeButtonScale = useRef(new Animated.Value(1)).current;
+  const likeButtonScale = useRef(new Animated.Value(1)).current;
+  const moreButtonScale = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
     loadProfiles();
   }, []);
+
+  // Réinitialiser l'index des photos quand on change de profil
+  useEffect(() => {
+    setCurrentPhotoIndex(0);
+  }, [currentIndex]);
 
   const loadProfiles = async () => {
     try {
@@ -132,6 +144,62 @@ const ExploreScreen = () => {
       useNativeDriver: false,
     }).start();
     swipeAnimatedValue.setValue(0);
+  };
+
+  // Navigation entre les photos
+  const navigateToNextPhoto = () => {
+    const profile = profiles[currentIndex];
+    if (!profile?.photos || profile.photos.length <= 1) return;
+
+    setCurrentPhotoIndex((prevIndex) =>
+      prevIndex < profile.photos.length - 1 ? prevIndex + 1 : prevIndex
+    );
+  };
+
+  const navigateToPreviousPhoto = () => {
+    setCurrentPhotoIndex((prevIndex) =>
+      prevIndex > 0 ? prevIndex - 1 : prevIndex
+    );
+  };
+
+  // Animation des boutons
+  const animateButton = (
+    buttonScale: Animated.Value,
+    callback?: () => void
+  ) => {
+    Animated.sequence([
+      Animated.timing(buttonScale, {
+        toValue: 0.85,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(buttonScale, {
+        toValue: 1,
+        friction: 3,
+        tension: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      if (callback) callback();
+    });
+  };
+
+  const handleRejectPress = () => {
+    animateButton(rejectButtonScale, () => forceSwipe("left"));
+  };
+
+  const handleSuperLikePress = () => {
+    animateButton(superLikeButtonScale, () =>
+      Alert.alert("Super Connect!", "Fonctionnalité premium")
+    );
+  };
+
+  const handleLikePress = () => {
+    animateButton(likeButtonScale, () => forceSwipe("right"));
+  };
+
+  const handleMorePress = () => {
+    animateButton(moreButtonScale, () => setShowOptionsModal(true));
   };
 
   const panResponder = useRef(
@@ -248,10 +316,22 @@ const ExploreScreen = () => {
             <Image
               source={{
                 uri:
-                  currentProfile.photos?.[0] ||
+                  currentProfile.photos?.[currentPhotoIndex] ||
                   "https://placekitten.com/400/600",
               }}
               style={styles.profileImage}
+            />
+
+            {/* Zones de navigation photo invisibles */}
+            <TouchableOpacity
+              style={styles.leftPhotoZone}
+              onPress={navigateToPreviousPhoto}
+              activeOpacity={1}
+            />
+            <TouchableOpacity
+              style={styles.rightPhotoZone}
+              onPress={navigateToNextPhoto}
+              activeOpacity={1}
             />
 
             {/* Photo indicators */}
@@ -264,7 +344,9 @@ const ExploreScreen = () => {
                       styles.indicator,
                       {
                         backgroundColor:
-                          index === 0 ? COLORS.white : "rgba(255,255,255,0.4)",
+                          index === currentPhotoIndex
+                            ? COLORS.white
+                            : "rgba(255,255,255,0.4)",
                       },
                     ]}
                   />
@@ -325,8 +407,17 @@ const ExploreScreen = () => {
                       },
                     ]}
                   >
-                    <Text style={styles.connectEmoji}>💪</Text>
-                    <Text style={styles.connectText}>CONNECT</Text>
+                    <View style={styles.connectLabelInner}>
+                      <View style={styles.connectEmojiContainer}>
+                        <Text style={styles.connectEmoji}>💪</Text>
+                      </View>
+                      <Text style={styles.connectText}>CONNECT</Text>
+                      <View style={styles.connectSubtext}>
+                        <Text style={styles.connectSubtextText}>
+                          LET'S TRAIN!
+                        </Text>
+                      </View>
+                    </View>
                   </Animated.View>
 
                   <Animated.View
@@ -339,8 +430,15 @@ const ExploreScreen = () => {
                       },
                     ]}
                   >
-                    <Ionicons name="close" size={40} color={COLORS.accent} />
-                    <Text style={styles.rejectText}>PASS</Text>
+                    <View style={styles.rejectLabelInner}>
+                      <View style={styles.rejectIconContainer}>
+                        <Ionicons name="close" size={48} color={COLORS.white} />
+                      </View>
+                      <Text style={styles.rejectText}>PASS</Text>
+                      <View style={styles.rejectSubtext}>
+                        <Text style={styles.rejectSubtextText}>NOT TODAY</Text>
+                      </View>
+                    </View>
                   </Animated.View>
                 </>
               );
@@ -351,39 +449,45 @@ const ExploreScreen = () => {
 
       {/* Action Buttons */}
       <View style={styles.actionButtons}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.rejectButton]}
-          onPress={() => forceSwipe("left")}
-        >
-          <Ionicons name="close" size={28} color={COLORS.accent} />
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: rejectButtonScale }] }}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.rejectButton]}
+            onPress={handleRejectPress}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="close" size={24} color="#FF4757" />
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.actionButton, styles.superLikeButton]}
-          onPress={() =>
-            Alert.alert("Super Connect!", "Fonctionnalité premium")
-          }
-        >
-          <Text style={styles.handEmoji}>👋</Text>
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: superLikeButtonScale }] }}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.superLikeButton]}
+            onPress={handleSuperLikePress}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="flash" size={20} color="#FFB84D" />
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.actionButton, styles.likeButton]}
-          onPress={() => forceSwipe("right")}
-        >
-          <Text style={styles.muscleEmoji}>💪</Text>
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: likeButtonScale }] }}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.likeButton]}
+            onPress={handleLikePress}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="thumbs-up" size={24} color="#4CCAF1" />
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={[styles.actionButton, styles.moreButton]}
-          onPress={() => setShowOptionsModal(true)}
-        >
-          <Ionicons
-            name="ellipsis-horizontal"
-            size={24}
-            color={COLORS.midnight}
-          />
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: moreButtonScale }] }}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.moreButton]}
+            onPress={handleMorePress}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="ellipsis-horizontal" size={20} color="#8E9AAF" />
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       {/* Options Modal */}
@@ -503,12 +607,30 @@ const styles = StyleSheet.create({
     height: "100%",
     resizeMode: "cover",
   },
+  // Zones de navigation photo
+  leftPhotoZone: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "30%",
+    height: "70%", // Jusqu'aux infos du profil
+    zIndex: 10,
+  },
+  rightPhotoZone: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: "30%",
+    height: "70%", // Jusqu'aux infos du profil
+    zIndex: 10,
+  },
   indicatorsContainer: {
     position: "absolute",
     top: 20,
     left: 20,
     right: 20,
     flexDirection: "row",
+    zIndex: 5,
   },
   indicator: {
     flex: 1,
@@ -520,6 +642,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 60,
     left: 20,
+    zIndex: 5,
   },
   interestBadge: {
     width: 48,
@@ -551,6 +674,7 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 24,
     right: 24,
+    zIndex: 5,
   },
   profileName: {
     fontSize: 32,
@@ -582,43 +706,154 @@ const styles = StyleSheet.create({
     position: "absolute",
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.95)",
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+    zIndex: 5,
+  },
+  connectLabel: {
+    top: "30%",
+    left: "15%",
+    transform: [{ rotate: "-15deg" }],
+  },
+  connectLabelInner: {
+    backgroundColor: COLORS.skyBlue,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderRadius: 20,
+    borderWidth: 4,
+    borderColor: "#81D4FA",
+    alignItems: "center",
+    minWidth: 140,
+    shadowColor: COLORS.skyBlue,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 15,
+  },
+  connectEmojiContainer: {
+    backgroundColor: COLORS.white,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+    borderWidth: 3,
+    borderColor: "#81D4FA",
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 8,
   },
-  connectLabel: {
-    top: "35%",
-    left: "25%",
-    transform: [{ rotate: "-20deg" }],
-  },
-  rejectLabel: {
-    top: "35%",
-    right: "25%",
-    transform: [{ rotate: "20deg" }],
-  },
   connectEmoji: {
-    fontSize: 36,
-    marginBottom: 4,
+    fontSize: 28,
+    textShadowColor: "rgba(0,0,0,0.3)",
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   connectText: {
-    fontSize: 18,
+    fontSize: 22,
+    fontWeight: "900",
+    color: COLORS.white,
+    letterSpacing: 2,
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
+    marginBottom: 4,
+  },
+  connectSubtext: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  connectSubtextText: {
+    fontSize: 12,
     fontWeight: "700",
-    color: COLORS.skyBlue,
+    color: COLORS.white,
+    letterSpacing: 1,
+  },
+  rejectLabel: {
+    top: "30%",
+    right: "15%",
+    transform: [{ rotate: "15deg" }],
+  },
+  rejectLabelInner: {
+    backgroundColor: COLORS.accent,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderRadius: 20,
+    borderWidth: 4,
+    borderColor: "#FF7961",
+    alignItems: "center",
+    minWidth: 140,
+    shadowColor: COLORS.accent,
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 15,
+  },
+  rejectIconContainer: {
+    backgroundColor: COLORS.white,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+    borderWidth: 3,
+    borderColor: "#FF7961",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
   },
   rejectText: {
-    fontSize: 18,
+    fontSize: 22,
+    fontWeight: "900",
+    color: COLORS.white,
+    letterSpacing: 2,
+    textShadowColor: "rgba(0,0,0,0.4)",
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
+    marginBottom: 4,
+  },
+  rejectSubtext: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  rejectSubtextText: {
+    fontSize: 12,
     fontWeight: "700",
-    color: COLORS.accent,
-    marginTop: 4,
+    color: COLORS.white,
+    letterSpacing: 1,
   },
   actionButtons: {
     position: "absolute",
@@ -636,41 +871,33 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     justifyContent: "center",
     alignItems: "center",
-    marginHorizontal: 12,
-    backgroundColor: COLORS.white,
+    marginHorizontal: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 2,
     },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 6,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.06)",
   },
   rejectButton: {
-    borderWidth: 2,
-    borderColor: COLORS.accent,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
   },
   superLikeButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    borderWidth: 2,
-    borderColor: "#FFA726",
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
   },
   likeButton: {
-    borderWidth: 2,
-    borderColor: COLORS.skyBlue,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
   },
   moreButton: {
-    borderWidth: 2,
-    borderColor: "#E0E0E0",
-  },
-  handEmoji: {
-    fontSize: 28,
-  },
-  muscleEmoji: {
-    fontSize: 28,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
   },
   modalOverlay: {
     flex: 1,

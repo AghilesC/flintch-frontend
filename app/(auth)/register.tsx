@@ -1,4 +1,4 @@
-// ✅ register.tsx
+// ✅ Nouvelle version de register.tsx avec support multi-photos
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -36,7 +36,7 @@ const RegisterScreen = () => {
 
   const router = useRouter();
 
-  const uploadPhoto = async (token: string, file: any) => {
+  const uploadPhoto = async (token: string, file: any, is_main: boolean) => {
     try {
       if (!file?.uri || !file?.name || !file?.type) {
         throw new Error("Fichier photo incomplet");
@@ -51,13 +51,14 @@ const RegisterScreen = () => {
           new File([blob], file.name, { type: file.type })
         );
       } else {
-        // 👇 Expo Native : convertir le fichier en type { uri, name, type }
         formData.append("photo", {
           uri: file.uri,
           name: file.name,
           type: file.type,
-        } as any); // TypeScript cast to any
+        } as any);
       }
+
+      formData.append("is_main", is_main ? "1" : "0");
 
       const res = await axios.post(
         "http://localhost:8000/api/photos/upload",
@@ -109,8 +110,10 @@ const RegisterScreen = () => {
       const token = res.data.token;
       await AsyncStorage.setItem("token", token);
 
-      if (profile.file) {
-        await uploadPhoto(token, profile.file);
+      if (profile.photos?.length > 0) {
+        for (const photo of profile.photos) {
+          await uploadPhoto(token, photo, photo.is_main);
+        }
       }
 
       router.replace("/(tabs)/home");
@@ -173,11 +176,10 @@ const RegisterScreen = () => {
       phone={profile.phone}
     />,
     <RegisterStepProfilePhoto
-      onNext={({ profile_photo, file }) => {
-        setProfile({ ...profile, profile_photo, file });
+      onNext={({ photos }) => {
+        setProfile({ ...profile, photos });
         setStep(7);
       }}
-      profile_photo={profile.profile_photo?.uri || ""}
     />,
   ];
 

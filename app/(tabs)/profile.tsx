@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -323,8 +323,8 @@ export default function ProfileScreen() {
     transform: [{ scaleX: heartbeatScale.value }],
   }));
 
-  // ----------- Fetch User dynamique ----------
-  const fetchUser = async () => {
+  // ----------- Fetch User dynamique avec useCallback ----------
+  const fetchUser = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("token");
       const response = await axios.get("http://localhost:8000/api/user", {
@@ -335,10 +335,10 @@ export default function ProfileScreen() {
     } catch (error) {
       console.error("Erreur fetch user:", error);
     }
-  };
+  }, []);
 
-  // ----------- Fetch Photos utilisateur ----------
-  const fetchUserPhotos = async () => {
+  // ----------- Fetch Photos utilisateur avec useCallback ----------
+  const fetchUserPhotos = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("token");
       console.log(
@@ -374,33 +374,31 @@ export default function ProfileScreen() {
       console.error("💥 Response:", error.response?.data);
       console.error("💥 Status:", error.response?.status);
       setUserPhotos([]);
-    } finally {
-      setLoading(false);
     }
-  };
-
-  // ✨ Rechargement initial
-  useEffect(() => {
-    const loadData = async () => {
-      await fetchUser();
-      await fetchUserPhotos();
-    };
-    loadData();
   }, []);
 
-  // Rechargement quand user change
+  // ✨ Chargement initial - Une seule fois
   useEffect(() => {
-    if (user) {
-      const completion = getProfileCompletion();
-      console.log(
-        "⚡ TEMPS RÉEL - User updated - new completion:",
-        completion + "%"
-      );
-    }
-  }, [user]);
+    let mounted = true;
 
-  // ----------- Dynamique pour SVG ---------
-  const getProfileCompletion = () => {
+    const loadData = async () => {
+      if (mounted) {
+        console.log("🚀 Initial load started");
+        await Promise.all([fetchUser(), fetchUserPhotos()]);
+        setLoading(false);
+        console.log("✅ Initial load completed");
+      }
+    };
+
+    loadData();
+
+    return () => {
+      mounted = false;
+    };
+  }, []); // Tableau vide = une seule exécution
+
+  // ----------- Calcul de complétion MÉMORISÉ ---------
+  const profileCompletion = useMemo(() => {
     if (!user) {
       console.log("❌ User is null - completion = 0");
       return 0;
@@ -484,16 +482,17 @@ export default function ProfileScreen() {
         ")"
     );
     return finalPercent;
-  };
+  }, [user]); // Recalcule seulement si user change
 
-  const getAge = (birthdate: string) => {
-    if (!birthdate) return "";
-    const diff = Date.now() - new Date(birthdate).getTime();
+  // ----------- Calcul de l'âge MÉMORISÉ ----------
+  const userAge = useMemo(() => {
+    if (!user?.birthdate) return "";
+    const diff = Date.now() - new Date(user.birthdate).getTime();
     return Math.abs(new Date(diff).getUTCFullYear() - 1970);
-  };
+  }, [user?.birthdate]);
 
-  // ----------- Obtenir la photo principale ----------
-  const getMainPhoto = () => {
+  // ----------- Photo principale MÉMORISÉE ----------
+  const mainPhotoUrl = useMemo(() => {
     console.log("🔍 Recherche photo principale...");
     console.log("📊 User photos disponibles:", userPhotos.length);
     console.log("📊 User profile_photo:", user?.profile_photo);
@@ -518,10 +517,18 @@ export default function ProfileScreen() {
 
     console.log("❌ Aucune photo trouvée");
     return null;
-  };
+  }, [userPhotos, user?.profile_photo]);
+
+  // ----------- Navigation optimisée avec useCallback ----------
+  const handleEditProfile = useCallback(async () => {
+    await router.push("../(auth)/complete-profile");
+    setLoading(true);
+    await Promise.all([fetchUser(), fetchUserPhotos()]);
+    setLoading(false);
+  }, [router, fetchUser, fetchUserPhotos]);
 
   const renderSports = () => {
-    if (!user.sports || user.sports.length === 0) {
+    if (!user?.sports || user.sports.length === 0) {
       return (
         <Text style={styles.sportPlaceholder}>Aucun sport sélectionné</Text>
       );
@@ -529,7 +536,11 @@ export default function ProfileScreen() {
     return (
       <View style={styles.sportsList}>
         {user.sports.slice(0, 5).map((sport: string, idx: number) => (
-          <AnimatedSportTag key={sport + idx} text={sport} delay={idx * 120} />
+          <AnimatedSportTag
+            key={`${sport}-${idx}`}
+            text={sport}
+            delay={idx * 120}
+          />
         ))}
       </View>
     );
@@ -537,14 +548,14 @@ export default function ProfileScreen() {
 
   // ---- Affichage Objectifs en pictos ----
   const renderObjectifs = () => {
-    if (!user.goals || user.goals.length === 0) {
+    if (!user?.goals || user.goals.length === 0) {
       return null;
     }
     return (
       <View style={styles.objectifsList}>
         {user.goals.slice(0, 5).map((objectif: string, idx: number) => (
           <AnimatedObjectif
-            key={objectif + idx}
+            key={`${objectif}-${idx}`}
             icon={objectifsIcons[objectif] || "🎯"}
             text={objectif}
             delay={idx * 120}
@@ -555,8 +566,7 @@ export default function ProfileScreen() {
   };
 
   // --- Barre de progression circulaire à jour ! ---
-  const completion = getProfileCompletion();
-  const strokeDashoffset = CIRCUMFERENCE * (1 - completion / 100);
+  const strokeDashoffset = CIRCUMFERENCE * (1 - profileCompletion / 100);
 
   if (loading) {
     return (
@@ -565,6 +575,7 @@ export default function ProfileScreen() {
       </View>
     );
   }
+
   if (!user) {
     return (
       <View style={styles.container}>
@@ -572,8 +583,6 @@ export default function ProfileScreen() {
       </View>
     );
   }
-
-  const mainPhotoUrl = getMainPhoto();
 
   return (
     <View style={styles.container}>
@@ -607,12 +616,7 @@ export default function ProfileScreen() {
           {/* Photo + crayon avec même effet heartbeat */}
           <TouchableOpacity
             style={styles.profilePicTouchable}
-            onPress={async () => {
-              await router.push("../(auth)/complete-profile");
-              setLoading(true);
-              await fetchUser();
-              await fetchUserPhotos();
-            }}
+            onPress={handleEditProfile}
             activeOpacity={0.85}
           >
             {mainPhotoUrl ? (
@@ -631,12 +635,7 @@ export default function ProfileScreen() {
           {/* Icône d'édition séparée */}
           <TouchableOpacity
             style={styles.editIcon}
-            onPress={async () => {
-              await router.push("../(auth)/complete-profile");
-              setLoading(true);
-              await fetchUser();
-              await fetchUserPhotos();
-            }}
+            onPress={handleEditProfile}
             activeOpacity={0.9}
           >
             <Ionicons name="pencil" size={22} color="#fff" />
@@ -645,7 +644,9 @@ export default function ProfileScreen() {
 
         {/* Texte de complétion avec animation heartbeat */}
         <View style={styles.completionTextContainer}>
-          <Text style={styles.completionText}>{completion} % COMPLETÉ</Text>
+          <Text style={styles.completionText}>
+            {profileCompletion} % COMPLETÉ
+          </Text>
           <View style={styles.heartbeatLine}>
             <AnimatedView
               style={[styles.heartbeatIndicator, heartbeatBarStyle]}
@@ -660,7 +661,7 @@ export default function ProfileScreen() {
           {user?.name
             ? user.name.charAt(0).toUpperCase() + user.name.slice(1)
             : ""}
-          {user?.birthdate ? `, ${getAge(user.birthdate)}` : ""}
+          {userAge ? `, ${userAge}` : ""}
         </Text>
         {renderSports()}
         {renderObjectifs()}

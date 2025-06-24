@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Image,
   Platform,
   StyleSheet,
@@ -14,20 +15,19 @@ import {
 
 const RegisterStepProfilePhoto = ({
   onNext,
-  profile_photo,
 }: {
   onNext: (data: {
-    profile_photo: string;
-    file: { uri: string; name: string; type: string } | null;
+    photos: {
+      uri: string;
+      name: string;
+      type: string;
+      is_main: boolean;
+    }[];
   }) => void;
-  profile_photo?: string;
 }) => {
-  const [photoUri, setPhotoUri] = useState(profile_photo || "");
-  const [photoFile, setPhotoFile] = useState<{
-    uri: string;
-    name: string;
-    type: string;
-  } | null>(null);
+  const [photos, setPhotos] = useState<
+    { uri: string; name: string; type: string; is_main: boolean }[]
+  >([]);
   const [loading, setLoading] = useState(false);
 
   const pickImage = async () => {
@@ -42,27 +42,28 @@ const RegisterStepProfilePhoto = ({
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
         allowsEditing: true,
         aspect: [4, 5],
         quality: 0.8,
-        base64: false, // important: pas de base64
+        base64: false,
       });
 
-      if (!result.canceled && result.assets.length > 0) {
-        const asset = result.assets[0];
-        const uri = asset.uri;
-        const filename = uri.split("/").pop() ?? `photo-${Date.now()}.jpg`;
-        const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
-        const type = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+      if (!result.canceled) {
+        const newPhotos = result.assets.map((asset, index) => {
+          const uri = asset.uri;
+          const filename = uri.split("/").pop() ?? `photo-${Date.now()}.jpg`;
+          const ext = filename.split(".").pop()?.toLowerCase() || "jpg";
+          const type = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+          return {
+            uri: Platform.OS === "web" ? uri : uri,
+            name: filename,
+            type,
+            is_main: photos.length === 0 && index === 0,
+          };
+        });
 
-        const formattedFile = {
-          uri: Platform.OS === "web" ? uri : uri,
-          name: filename,
-          type,
-        };
-
-        setPhotoUri(uri);
-        setPhotoFile(formattedFile);
+        setPhotos((prev) => [...prev, ...newPhotos]);
       }
     } catch (err) {
       Alert.alert("Erreur", "Impossible de sélectionner la photo");
@@ -72,42 +73,73 @@ const RegisterStepProfilePhoto = ({
     }
   };
 
+  const handleDelete = (index: number) => {
+    const updated = [...photos];
+    updated.splice(index, 1);
+
+    // Réassigner la photo principale si elle est supprimée
+    if (!updated.some((p) => p.is_main) && updated.length > 0) {
+      updated[0].is_main = true;
+    }
+
+    setPhotos(updated);
+  };
+
   const handleNext = () => {
-    if (!photoUri || !photoFile) {
+    if (photos.length === 0) {
       Alert.alert("Erreur", "Aucune photo sélectionnée");
       return;
     }
-    onNext({ profile_photo: photoUri, file: photoFile });
+    onNext({ photos });
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Ajoute une photo</Text>
+      <Text style={styles.title}>Ajoute une ou plusieurs photos</Text>
 
       <TouchableOpacity
-        style={styles.photoContainer}
+        style={styles.photoPicker}
         onPress={pickImage}
         activeOpacity={0.8}
       >
         {loading ? (
           <ActivityIndicator size="large" color="#FF5135" />
-        ) : photoUri ? (
-          <Image source={{ uri: photoUri }} style={styles.photo} />
         ) : (
           <>
             <Ionicons name="add" size={40} color="#FF5135" />
-            <Text style={styles.photoText}>Choisir une photo</Text>
+            <Text style={styles.photoText}>Choisir des photos</Text>
           </>
         )}
       </TouchableOpacity>
 
+      <FlatList
+        horizontal
+        data={photos}
+        keyExtractor={(item, index) => `${item.uri}-${index}`}
+        renderItem={({ item, index }) => (
+          <View style={styles.photoPreview}>
+            <Image source={{ uri: item.uri }} style={styles.photo} />
+            <TouchableOpacity
+              style={styles.deleteIcon}
+              onPress={() => handleDelete(index)}
+            >
+              <Ionicons name="close-circle" size={22} color="#FF5135" />
+            </TouchableOpacity>
+            {item.is_main && (
+              <Text style={styles.mainBadge}>Photo principale</Text>
+            )}
+          </View>
+        )}
+        contentContainerStyle={{ gap: 10, paddingVertical: 20 }}
+      />
+
       <TouchableOpacity
         style={[
           styles.button,
-          { backgroundColor: photoUri ? "#FF5135" : "#ccc" },
+          { backgroundColor: photos.length ? "#FF5135" : "#ccc" },
         ]}
         onPress={handleNext}
-        disabled={!photoUri || !photoFile}
+        disabled={photos.length === 0}
       >
         <Text style={styles.buttonText}>Suivant</Text>
       </TouchableOpacity>
@@ -129,8 +161,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#092C44",
     marginBottom: 24,
+    textAlign: "center",
   },
-  photoContainer: {
+  photoPicker: {
     width: 240,
     height: 280,
     borderRadius: 16,
@@ -139,19 +172,47 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 32,
-  },
-  photo: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 14,
+    marginBottom: 12,
   },
   photoText: {
     marginTop: 8,
     fontSize: 16,
     color: "#FF5135",
   },
+  photoPreview: {
+    position: "relative",
+    width: 100,
+    height: 120,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#FF5135",
+  },
+  deleteIcon: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: "#fff",
+    borderRadius: 11,
+  },
+  mainBadge: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FF5135",
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+    textAlign: "center",
+    paddingVertical: 2,
+  },
+  photo: {
+    width: "100%",
+    height: "100%",
+  },
   button: {
+    marginTop: 20,
     paddingVertical: 14,
     paddingHorizontal: 32,
     borderRadius: 28,
