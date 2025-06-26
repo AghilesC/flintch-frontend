@@ -1,9 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Image,
@@ -16,7 +20,6 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withDelay,
-  withRepeat,
   withSequence,
   withSpring,
   withTiming,
@@ -29,7 +32,15 @@ import Svg, {
   LinearGradient as SvgGradient,
 } from "react-native-svg";
 
-// ---- Nouveau : mapping objectif → emoji ----
+// Import des systèmes existants
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
+import axios from "axios";
+import { useImagePreloader } from "../../hooks/useImageCache";
+import CacheManager from "../../utils/CacheManager";
+import { useApp } from "../contexts/AppContext";
+
+// ---- Mapping objectif → emoji ----
 const objectifsIcons: { [key: string]: string } = {
   "Perte de poids": "⚖️",
   "Prise de masse": "💪",
@@ -58,524 +69,458 @@ const STROKE_WIDTH = 8;
 const RADIUS = (CIRCLE_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-function CardAction({ icon, color, title, subtitle }: any) {
-  return (
-    <View style={styles.cardAction}>
-      <Ionicons
-        name={icon}
-        size={28}
-        color={color}
-        style={{ marginBottom: 4 }}
-      />
-      <Text style={styles.cardTitle}>{title}</Text>
-      {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
-    </View>
-  );
-}
+// ✅ FONCTION UTILITAIRE POUR NORMALISER LES DONNÉES
+const normalizeArray = (data: unknown): string[] => {
+  if (!data) return [];
+
+  if (Array.isArray(data)) {
+    return data.filter(
+      (item): item is string =>
+        item && typeof item === "string" && item.trim() !== ""
+    );
+  }
+
+  if (typeof data === "string") {
+    try {
+      // Essayer de parser en JSON d'abord
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string =>
+            item && typeof item === "string" && item.trim() !== ""
+        );
+      }
+    } catch {
+      // Si ce n'est pas du JSON, essayer de split
+      return data
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter((s: string) => s !== "");
+    }
+  }
+
+  return [];
+};
+
+// ✨ COMPOSANTS OPTIMISÉS AVEC MEMO
+const CardAction = React.memo(
+  ({
+    icon,
+    color,
+    title,
+    subtitle,
+  }: {
+    icon: string;
+    color: string;
+    title: string;
+    subtitle?: string;
+  }) => {
+    return (
+      <View style={styles.cardAction}>
+        <Ionicons
+          name={icon as any}
+          size={28}
+          color={color}
+          style={{ marginBottom: 4 }}
+        />
+        <Text style={styles.cardTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
+      </View>
+    );
+  }
+);
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 const AnimatedTouchableOpacity =
   Animated.createAnimatedComponent(TouchableOpacity);
 
-function AnimatedObjectif({
-  icon,
-  text,
-  delay = 0,
-}: {
-  icon: string;
-  text: string;
-  delay?: number;
-}) {
-  // ✨ TON GLOW ORIGINAL (rouge)
-  const glow = useSharedValue(0.6);
+// ✨ ANIMATIONS PLUS LÉGÈRES - PAS D'INFINI
+const AnimatedObjectif = React.memo(
+  ({
+    icon,
+    text,
+    delay = 0,
+  }: {
+    icon: string;
+    text: string;
+    delay?: number;
+  }) => {
+    const opacity = useSharedValue(0);
+    const translateY = useSharedValue(25);
+    const scale = useSharedValue(0.7);
+    const touchScale = useSharedValue(1);
 
-  // ✨ NOUVELLE ANIMATION POP-IN
-  const opacity = useSharedValue(0);
-  const translateY = useSharedValue(25);
-  const scale = useSharedValue(0.7);
-
-  // ✨ EFFET BOUNCY QUAND ON APPUIE
-  const touchScale = useSharedValue(1);
-  const rotation = useSharedValue(0);
-
-  useEffect(() => {
-    // Ton glow original
-    glow.value = withDelay(
-      delay,
-      withRepeat(
+    useEffect(() => {
+      // Animation d'apparition uniquement
+      opacity.value = withDelay(delay, withTiming(1, { duration: 500 }));
+      translateY.value = withDelay(delay, withTiming(0, { duration: 600 }));
+      scale.value = withDelay(
+        delay,
         withSequence(
-          withTiming(1, { duration: 700 }),
-          withTiming(0.7, { duration: 900 }),
-          withTiming(1, { duration: 600 })
-        ),
-        -1,
-        true
-      )
-    );
-
-    // Nouvelle animation d'apparition
-    opacity.value = withDelay(delay, withTiming(1, { duration: 500 }));
-    translateY.value = withDelay(delay, withTiming(0, { duration: 600 }));
-    scale.value = withDelay(
-      delay,
-      withSequence(
-        withTiming(1.15, { duration: 250 }),
-        withTiming(0.95, { duration: 150 }),
-        withTiming(1, { duration: 100 })
-      )
-    );
-  }, []);
-
-  const handlePress = () => {
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Bouncy animation
-    touchScale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withSpring(1.1, { damping: 6, stiffness: 200 }),
-      withSpring(1, { damping: 8, stiffness: 200 })
-    );
-
-    // Subtle rotation
-    rotation.value = withSequence(
-      withTiming(3, { duration: 150 }),
-      withTiming(-3, { duration: 150 }),
-      withTiming(0, { duration: 150 })
-    );
-  };
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    // TON GLOW ORIGINAL
-    shadowColor: "#FF5135",
-    shadowOpacity: glow.value,
-    shadowRadius: 18 + 6 * glow.value,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 7 * glow.value,
-    // NOUVELLE ANIMATION POP-IN + BOUNCY
-    opacity: opacity.value,
-    transform: [
-      { translateY: translateY.value },
-      { scale: (0.96 + 0.08 * glow.value) * scale.value * touchScale.value },
-      { rotate: `${rotation.value}deg` },
-    ],
-  }));
-
-  return (
-    <AnimatedTouchableOpacity
-      style={[styles.objectifTag, animatedStyle]}
-      onPress={handlePress}
-      activeOpacity={0.8}
-    >
-      <Text style={styles.objectifEmoji}>{icon}</Text>
-      <Text style={styles.objectifText}>{text}</Text>
-    </AnimatedTouchableOpacity>
-  );
-}
-
-function AnimatedSportTag({
-  text,
-  delay = 0,
-}: {
-  text: string;
-  delay?: number;
-}) {
-  // ✨ TON GLOW ORIGINAL (bleu)
-  const glow = useSharedValue(0.6);
-
-  // ✨ NOUVELLE ANIMATION POP-IN
-  const opacity = useSharedValue(0);
-  const translateY = useSharedValue(20);
-  const scale = useSharedValue(0.8);
-
-  // ✨ EFFET BOUNCY QUAND ON APPUIE
-  const touchScale = useSharedValue(1);
-  const rotation = useSharedValue(0);
-
-  useEffect(() => {
-    // Ton glow original
-    glow.value = withDelay(
-      delay,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration: 700 }),
-          withTiming(0.7, { duration: 900 }),
-          withTiming(1, { duration: 600 })
-        ),
-        -1,
-        true
-      )
-    );
-
-    // Nouvelle animation d'apparition
-    opacity.value = withDelay(delay, withTiming(1, { duration: 600 }));
-    translateY.value = withDelay(delay, withTiming(0, { duration: 700 }));
-    scale.value = withDelay(
-      delay,
-      withSequence(
-        withTiming(1.1, { duration: 300 }),
-        withTiming(1, { duration: 200 })
-      )
-    );
-  }, []);
-
-  const handlePress = () => {
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Bouncy animation
-    touchScale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withSpring(1.1, { damping: 6, stiffness: 200 }),
-      withSpring(1, { damping: 8, stiffness: 200 })
-    );
-
-    // Subtle rotation
-    rotation.value = withSequence(
-      withTiming(-5, { duration: 150 }),
-      withTiming(5, { duration: 150 }),
-      withTiming(0, { duration: 150 })
-    );
-  };
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    // TON GLOW ORIGINAL
-    shadowColor: "#4CCAF1", // BLEU!
-    shadowOpacity: glow.value,
-    shadowRadius: 18 + 6 * glow.value,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 7 * glow.value,
-    // NOUVELLE ANIMATION POP-IN + BOUNCY
-    opacity: opacity.value,
-    transform: [
-      { translateY: translateY.value },
-      { scale: (0.96 + 0.08 * glow.value) * scale.value * touchScale.value },
-      { rotate: `${rotation.value}deg` },
-    ],
-  }));
-
-  return (
-    <AnimatedTouchableOpacity
-      style={[styles.sportTag, animatedStyle]}
-      onPress={handlePress}
-      activeOpacity={0.8}
-    >
-      <Text style={styles.sportText}>{text}</Text>
-    </AnimatedTouchableOpacity>
-  );
-}
-
-export default function ProfileScreen() {
-  const [user, setUser] = useState<any>(null);
-  const [userPhotos, setUserPhotos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const router = useRouter();
-
-  // ✨ NOUVEAU : Animation battement de cœur (heartbeat)
-  const heartbeatScale = useSharedValue(1);
-  const heartbeatGlow = useSharedValue(0.3);
-
-  useEffect(() => {
-    // Battement de cœur réaliste : boom-boom... pause... boom-boom... pause
-    heartbeatScale.value = withRepeat(
-      withSequence(
-        // Premier battement (systole)
-        withTiming(1.08, { duration: 100 }),
-        withTiming(1, { duration: 100 }),
-        // Deuxième battement (diastole)
-        withTiming(1.05, { duration: 80 }),
-        withTiming(1, { duration: 120 }),
-        // Pause entre les battements
-        withTiming(1, { duration: 800 })
-      ),
-      -1,
-      false
-    );
-
-    // Glow qui suit le battement
-    heartbeatGlow.value = withRepeat(
-      withSequence(
-        // Premier glow
-        withTiming(0.8, { duration: 100 }),
-        withTiming(0.3, { duration: 100 }),
-        // Deuxième glow
-        withTiming(0.6, { duration: 80 }),
-        withTiming(0.2, { duration: 120 }),
-        // Pause glow
-        withTiming(0.3, { duration: 800 })
-      ),
-      -1,
-      false
-    );
-  }, []);
-
-  const heartbeatStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: heartbeatScale.value }],
-    shadowOpacity: heartbeatGlow.value,
-    shadowRadius: 15 + heartbeatGlow.value * 10,
-    shadowColor: "#FF5135",
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5 + heartbeatGlow.value * 5,
-  }));
-
-  const heartbeatBarStyle = useAnimatedStyle(() => ({
-    opacity: heartbeatGlow.value + 0.4,
-    transform: [{ scaleX: heartbeatScale.value }],
-  }));
-
-  // ----------- Fetch User dynamique avec useCallback ----------
-  const fetchUser = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      const response = await axios.get("http://localhost:8000/api/user", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      console.log("📊 User data loaded:", response.data);
-      setUser(response.data);
-    } catch (error) {
-      console.error("Erreur fetch user:", error);
-    }
-  }, []);
-
-  // ----------- Fetch Photos utilisateur avec useCallback ----------
-  const fetchUserPhotos = useCallback(async () => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      console.log(
-        "🔑 Token pour photos:",
-        token ? "✅ Présent" : "❌ Manquant"
+          withTiming(1.15, { duration: 250 }),
+          withTiming(0.95, { duration: 150 }),
+          withTiming(1, { duration: 100 })
+        )
       );
+    }, []);
+
+    const handlePress = useCallback(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      touchScale.value = withSequence(
+        withTiming(0.95, { duration: 100 }),
+        withSpring(1.05, { damping: 8 }),
+        withSpring(1, { damping: 8 })
+      );
+    }, []);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+      opacity: opacity.value,
+      transform: [
+        { translateY: translateY.value },
+        { scale: scale.value * touchScale.value },
+      ],
+    }));
+
+    return (
+      <AnimatedTouchableOpacity
+        style={[styles.objectifTag, animatedStyle]}
+        onPress={handlePress}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.objectifEmoji}>{icon}</Text>
+        <Text style={styles.objectifText}>{text}</Text>
+      </AnimatedTouchableOpacity>
+    );
+  }
+);
+
+const AnimatedSportTag = React.memo(
+  ({ text, delay = 0 }: { text: string; delay?: number }) => {
+    const opacity = useSharedValue(0);
+    const translateY = useSharedValue(20);
+    const scale = useSharedValue(0.8);
+    const touchScale = useSharedValue(1);
+
+    useEffect(() => {
+      opacity.value = withDelay(delay, withTiming(1, { duration: 600 }));
+      translateY.value = withDelay(delay, withTiming(0, { duration: 700 }));
+      scale.value = withDelay(
+        delay,
+        withSequence(
+          withTiming(1.1, { duration: 300 }),
+          withTiming(1, { duration: 200 })
+        )
+      );
+    }, []);
+
+    const handlePress = useCallback(() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      touchScale.value = withSequence(
+        withTiming(0.95, { duration: 100 }),
+        withSpring(1.05, { damping: 8 }),
+        withSpring(1, { damping: 8 })
+      );
+    }, []);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+      opacity: opacity.value,
+      transform: [
+        { translateY: translateY.value },
+        { scale: scale.value * touchScale.value },
+      ],
+    }));
+
+    return (
+      <AnimatedTouchableOpacity
+        style={[styles.sportTag, animatedStyle]}
+        onPress={handlePress}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.sportText}>{text}</Text>
+      </AnimatedTouchableOpacity>
+    );
+  }
+);
+
+// ✅ COMPOSANT PRINCIPAL AVEC MEMO POUR 0 REFRESH
+const ProfileScreen = React.memo(() => {
+  // ✅ UTILISATION DU CONTEXTE EXISTANT
+  const { state } = useApp();
+  const { user } = state;
+
+  // 🚀 STATE LOCAL OPTIMISÉ
+  const [userPhotos, setUserPhotos] = useState<any[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
+  const photosLoadedRef = useRef(false);
+
+  const router = useRouter();
+  const { preloadImages } = useImagePreloader();
+
+  // ✅ OPTIMISATION: Stoppe les opérations si pas focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log("🎯 ProfileScreen focused");
+      setIsFocused(true);
+      return () => {
+        console.log("😴 ProfileScreen blurred - pausing operations");
+        setIsFocused(false);
+      };
+    }, [])
+  );
+
+  // ✅ DEBUG USER DATA
+  useEffect(() => {
+    if (user) {
+      console.log("=== 🔍 COMPLETE USER DEBUG ===");
+      console.log("Full user object:", user);
+      console.log("Sports raw:", user.sports);
+      console.log("Goals raw:", user.goals);
+      console.log("Sports type:", typeof user.sports);
+      console.log("Goals type:", typeof user.goals);
+      console.log("Sports isArray:", Array.isArray(user.sports));
+      console.log("Goals isArray:", Array.isArray(user.goals));
+      console.log("===============================");
+    }
+  }, [user]);
+
+  // ✨ ANIMATION HEARTBEAT PLUS LÉGÈRE
+  const heartbeatScale = useSharedValue(1);
+
+  useEffect(() => {
+    if (!isFocused) return; // ✅ Pas d'animation si pas focus
+
+    const animateHeartbeat = () => {
+      heartbeatScale.value = withSequence(
+        withTiming(1.05, { duration: 150 }),
+        withTiming(1, { duration: 150 }),
+        withTiming(1.03, { duration: 100 }),
+        withTiming(1, { duration: 200 })
+      );
+    };
+
+    const interval = setInterval(animateHeartbeat, 3000);
+    return () => clearInterval(interval);
+  }, [isFocused]);
+
+  // 🚀 FETCH PHOTOS ULTRA OPTIMISÉ
+  const fetchUserPhotos = useCallback(async () => {
+    if (photosLoadedRef.current || !isFocused) return; // ✅ Skip si pas focus
+
+    try {
+      // 🚀 CACHE MÉMOIRE EN PREMIER (ultra rapide)
+      const memoryPhotos = CacheManager.getMemoryCache("user_photos");
+      if (memoryPhotos && memoryPhotos.length > 0) {
+        console.log("⚡ Photos loaded from MEMORY cache (instant)");
+        setUserPhotos(memoryPhotos);
+        photosLoadedRef.current = true;
+
+        const photoUrls = memoryPhotos.map((p: any) => p.url).filter(Boolean);
+        if (photoUrls.length > 0) {
+          preloadImages(photoUrls);
+        }
+        return;
+      }
+
+      // 🚀 Cache persistant
+      const cachedPhotos = await CacheManager.getPersistentCache("user_photos");
+      if (cachedPhotos && cachedPhotos.length > 0) {
+        console.log("📦 Photos loaded from persistent cache");
+        setUserPhotos(cachedPhotos);
+        photosLoadedRef.current = true;
+
+        // ⚡ Cache mémoire pour accès ultra-rapide
+        CacheManager.setMemoryCache(
+          "user_photos",
+          cachedPhotos,
+          10 * 60 * 1000
+        ); // 10min
+
+        const photoUrls = cachedPhotos.map((p: any) => p.url).filter(Boolean);
+        if (photoUrls.length > 0) {
+          preloadImages(photoUrls);
+        }
+        return;
+      }
+
+      // 🌐 API en dernier recours
+      if (!isFocused) return; // ✅ Double check avant API
+
+      console.log("🌐 Fetching photos from API (background)");
+      setPhotosLoading(true);
+
+      const token = await AsyncStorage.getItem("token");
+      if (!token) {
+        setPhotosLoading(false);
+        return;
+      }
 
       const response = await axios.get("http://localhost:8000/api/photos", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      console.log("📸 Response photos:", response.data);
-      console.log("📸 Status:", response.status);
+      if (response.data.status && response.data.photos) {
+        const photos = response.data.photos;
+        setUserPhotos(photos);
+        photosLoadedRef.current = true;
 
-      if (response.data.status) {
-        console.log("📸 Photos trouvées:", response.data.photos.length);
-        setUserPhotos(response.data.photos);
+        // ✅ Double cache pour performance maximale
+        CacheManager.setMemoryCache("user_photos", photos, 10 * 60 * 1000);
+        await CacheManager.setPersistentCache(
+          "user_photos",
+          photos,
+          30 * 60 * 1000
+        );
 
-        // Log détaillé des photos
-        response.data.photos.forEach((photo: any, index: number) => {
-          console.log(`📷 Photo ${index + 1}:`, {
-            id: photo.id,
-            is_main: photo.is_main,
-            photo_url: photo.url,
-          });
-        });
-      } else {
-        console.log("📸 Aucune photo ou erreur API");
-        setUserPhotos([]);
+        const photoUrls = photos.map((p: any) => p.url).filter(Boolean);
+        if (photoUrls.length > 0) {
+          preloadImages(photoUrls);
+        }
       }
-    } catch (error: any) {
-      console.error("💥 Erreur fetch photos:", error);
-      console.error("💥 Response:", error.response?.data);
-      console.error("💥 Status:", error.response?.status);
-      setUserPhotos([]);
+    } catch (error) {
+      console.error("❌ Error fetching photos:", error);
+    } finally {
+      setPhotosLoading(false);
     }
-  }, []);
+  }, [preloadImages, isFocused]);
 
-  // ✨ Chargement initial - Une seule fois
+  // ✅ CHARGEMENT INTELLIGENT
   useEffect(() => {
-    let mounted = true;
+    if (!isFocused || photosLoadedRef.current) return;
+    fetchUserPhotos();
+  }, [fetchUserPhotos, isFocused]);
 
-    const loadData = async () => {
-      if (mounted) {
-        console.log("🚀 Initial load started");
-        await Promise.all([fetchUser(), fetchUserPhotos()]);
-        setLoading(false);
-        console.log("✅ Initial load completed");
-      }
-    };
-
-    loadData();
-
-    return () => {
-      mounted = false;
-    };
-  }, []); // Tableau vide = une seule exécution
-
-  // ----------- Calcul de complétion MÉMORISÉ ---------
+  // ✅ CALCULS MÉMOISÉS OPTIMISÉS
   const profileCompletion = useMemo(() => {
-    if (!user) {
-      console.log("❌ User is null - completion = 0");
-      return 0;
-    }
+    if (!user) return 0;
 
     let percent = 0;
-    console.log("🔧 Calculating completion for:", user.name);
-
-    // 1. Genre (20%)
-    if (user.gender) {
+    if (user.gender) percent += 20;
+    if (user.fitness_level) percent += 20;
+    if (user.goals && Array.isArray(user.goals) && user.goals.length > 0)
       percent += 20;
-      console.log("✅ Genre found:", user.gender, "- adding 20%");
-    } else {
-      console.log("❌ Genre missing - 0%");
-    }
-
-    // 2. Niveau sportif (20%)
-    if (user.fitness_level) {
+    if (user.sports && Array.isArray(user.sports) && user.sports.length > 0)
       percent += 20;
-      console.log(
-        "✅ Fitness level found:",
-        user.fitness_level,
-        "- adding 20%"
-      );
-    } else {
-      console.log("❌ Fitness level missing - 0%");
-    }
 
-    // 3. Objectifs (20%)
-    if (user.goals && user.goals.length > 0) {
-      percent += 20;
-      console.log("✅ Goals found:", user.goals.length, "goals - adding 20%");
-    } else {
-      console.log("❌ Goals missing - 0%");
-    }
-
-    // 4. Sports (20%)
-    if (user.sports && user.sports.length > 0) {
-      percent += 20;
-      console.log(
-        "✅ Sports found:",
-        user.sports.length,
-        "sports - adding 20%"
-      );
-    } else {
-      console.log("❌ Sports missing - 0%");
-    }
-
-    // 5. Disponibilité (20%) - Vérifier qu'il y a vraiment des créneaux sélectionnés
     const hasAvailability =
       user.availability &&
-      Object.keys(user.availability).length > 0 &&
       Object.values(user.availability).some(
         (daySlots: any) =>
-          daySlots &&
-          Object.keys(daySlots).length > 0 &&
-          Object.values(daySlots).some((slot: any) => slot === true)
+          daySlots && Object.values(daySlots).some((slot: any) => slot === true)
       );
+    if (hasAvailability) percent += 20;
 
-    if (hasAvailability) {
-      percent += 20;
-      console.log("✅ Availability found with real slots - adding 20%");
-    } else {
-      console.log("❌ Availability missing or empty - 0%", user.availability);
-    }
+    return Math.min(percent, 100);
+  }, [
+    user?.gender,
+    user?.fitness_level,
+    user?.goals?.length,
+    user?.sports?.length,
+    user?.availability,
+  ]);
 
-    const finalPercent = Math.min(percent, 100);
-    console.log(
-      "🎯 Final completion:",
-      finalPercent +
-        "% (Genre:" +
-        (user.gender ? "✅" : "❌") +
-        " | Level:" +
-        (user.fitness_level ? "✅" : "❌") +
-        " | Goals:" +
-        (user.goals?.length > 0 ? "✅" : "❌") +
-        " | Sports:" +
-        (user.sports?.length > 0 ? "✅" : "❌") +
-        " | Dispo:" +
-        (hasAvailability ? "✅" : "❌") +
-        ")"
-    );
-    return finalPercent;
-  }, [user]); // Recalcule seulement si user change
-
-  // ----------- Calcul de l'âge MÉMORISÉ ----------
   const userAge = useMemo(() => {
     if (!user?.birthdate) return "";
     const diff = Date.now() - new Date(user.birthdate).getTime();
     return Math.abs(new Date(diff).getUTCFullYear() - 1970);
   }, [user?.birthdate]);
 
-  // ----------- Photo principale MÉMORISÉE ----------
   const mainPhotoUrl = useMemo(() => {
-    console.log("🔍 Recherche photo principale...");
-    console.log("📊 User photos disponibles:", userPhotos.length);
-    console.log("📊 User profile_photo:", user?.profile_photo);
-
-    // ✅ Photo principale dans les photos uploadées
     const mainPhoto = userPhotos.find((photo) => photo.is_main);
-    if (mainPhoto) {
-      console.log("✅ Photo principale trouvée (is_main):", mainPhoto.url);
-      return mainPhoto.url;
-    }
-
-    // Fallback 1
-    if (userPhotos.length > 0) {
-      console.log("✅ Première photo utilisée:", userPhotos[0].url);
-      return userPhotos[0].url;
-    }
-
-    // Fallback 2
-    if (user?.profile_photo) {
-      return user.profile_photo;
-    }
-
-    console.log("❌ Aucune photo trouvée");
-    return null;
+    if (mainPhoto) return mainPhoto.url;
+    if (userPhotos.length > 0) return userPhotos[0].url;
+    return user?.profile_photo || null;
   }, [userPhotos, user?.profile_photo]);
 
-  // ----------- Navigation optimisée avec useCallback ----------
+  // ✅ NAVIGATION OPTIMISÉE
   const handleEditProfile = useCallback(async () => {
     await router.push("../(auth)/complete-profile");
-    setLoading(true);
-    await Promise.all([fetchUser(), fetchUserPhotos()]);
-    setLoading(false);
-  }, [router, fetchUser, fetchUserPhotos]);
+    await CacheManager.invalidateCache("user_photos");
+    photosLoadedRef.current = false;
+    fetchUserPhotos();
+  }, [router, fetchUserPhotos]);
 
-  const renderSports = () => {
-    if (!user?.sports || user.sports.length === 0) {
+  // ✅ RENDER SPORTS CORRIGÉ
+  const renderSports = useMemo(() => {
+    console.log("🏃 DEBUG - Raw user.sports:", user?.sports);
+    console.log("🏃 DEBUG - Type of user.sports:", typeof user?.sports);
+
+    const sportsArray = normalizeArray(user?.sports);
+
+    console.log("🏃 DEBUG - Normalized sports array:", sportsArray);
+
+    if (sportsArray.length === 0) {
       return (
         <Text style={styles.sportPlaceholder}>Aucun sport sélectionné</Text>
       );
     }
+
     return (
       <View style={styles.sportsList}>
-        {user.sports.slice(0, 5).map((sport: string, idx: number) => (
+        {sportsArray.slice(0, 5).map((sport: string, idx: number) => (
           <AnimatedSportTag
             key={`${sport}-${idx}`}
             text={sport}
-            delay={idx * 120}
+            delay={idx * 40}
           />
         ))}
       </View>
     );
-  };
+  }, [user?.sports]);
 
-  // ---- Affichage Objectifs en pictos ----
-  const renderObjectifs = () => {
-    if (!user?.goals || user.goals.length === 0) {
+  // ✅ RENDER OBJECTIFS CORRIGÉ
+  const renderObjectifs = useMemo(() => {
+    console.log("🎯 DEBUG - Raw user.goals:", user?.goals);
+    console.log("🎯 DEBUG - Type of user.goals:", typeof user?.goals);
+
+    const goalsArray = normalizeArray(user?.goals);
+
+    console.log("🎯 DEBUG - Normalized goals array:", goalsArray);
+
+    if (goalsArray.length === 0) {
       return null;
     }
+
     return (
       <View style={styles.objectifsList}>
-        {user.goals.slice(0, 5).map((objectif: string, idx: number) => (
+        {goalsArray.slice(0, 5).map((objectif: string, idx: number) => (
           <AnimatedObjectif
             key={`${objectif}-${idx}`}
             icon={objectifsIcons[objectif] || "🎯"}
             text={objectif}
-            delay={idx * 120}
+            delay={idx * 40}
           />
         ))}
       </View>
     );
-  };
+  }, [user?.goals]);
 
-  // --- Barre de progression circulaire à jour ! ---
-  const strokeDashoffset = CIRCUMFERENCE * (1 - profileCompletion / 100);
+  // ✅ STYLES ANIMÉS MÉMOISÉS
+  const heartbeatStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: heartbeatScale.value }],
+  }));
 
-  if (loading) {
+  const strokeDashoffset = useMemo(
+    () => CIRCUMFERENCE * (1 - profileCompletion / 100),
+    [profileCompletion]
+  );
+
+  // ✅ RENDU MINIMAL SI PAS FOCUS (économise ressources)
+  if (!isFocused) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF5135" />
+      <View style={styles.container}>
+        <View style={styles.minimalistContainer}>
+          <Text style={styles.name}>
+            {user?.name
+              ? user.name.charAt(0).toUpperCase() + user.name.slice(1)
+              : "Profile"}
+          </Text>
+        </View>
       </View>
     );
   }
 
+  // ✅ EARLY RETURN SI PAS D'USER
   if (!user) {
     return (
       <View style={styles.container}>
@@ -588,10 +533,14 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       {/* HERO + Barre circulaire avec battement de cœur */}
       <View style={styles.gradientBg}>
-        {/* Container avec effet heartbeat pour SVG + Photo ensemble */}
         <AnimatedView style={[styles.circleContainer, heartbeatStyle]}>
-          <Svg width={CIRCLE_SIZE} height={CIRCLE_SIZE}>
-            {/* Progress Gradient avec effet pulsation */}
+          {/* ✅ SVG PROGRESS CIRCLE */}
+          <Svg
+            width={CIRCLE_SIZE}
+            height={CIRCLE_SIZE}
+            style={styles.progressSvg}
+            pointerEvents="none"
+          >
             <Defs>
               <SvgGradient id="grad" x1="0" y1="0" x2="1" y2="1">
                 <Stop offset="0%" stopColor="#FF5135" />
@@ -599,6 +548,14 @@ export default function ProfileScreen() {
                 <Stop offset="100%" stopColor="#4CCAF1" />
               </SvgGradient>
             </Defs>
+            <Circle
+              cx={CIRCLE_SIZE / 2}
+              cy={CIRCLE_SIZE / 2}
+              r={RADIUS}
+              stroke="rgba(0,0,0,0.1)"
+              strokeWidth={STROKE_WIDTH}
+              fill="none"
+            />
             <Circle
               cx={CIRCLE_SIZE / 2}
               cy={CIRCLE_SIZE / 2}
@@ -613,7 +570,6 @@ export default function ProfileScreen() {
             />
           </Svg>
 
-          {/* Photo + crayon avec même effet heartbeat */}
           <TouchableOpacity
             style={styles.profilePicTouchable}
             onPress={handleEditProfile}
@@ -632,7 +588,12 @@ export default function ProfileScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Icône d'édition séparée */}
+          {photosLoading && (
+            <View style={styles.photoLoadingOverlay}>
+              <ActivityIndicator size="small" color="#FF5135" />
+            </View>
+          )}
+
           <TouchableOpacity
             style={styles.editIcon}
             onPress={handleEditProfile}
@@ -642,20 +603,14 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </AnimatedView>
 
-        {/* Texte de complétion avec animation heartbeat */}
         <View style={styles.completionTextContainer}>
           <Text style={styles.completionText}>
-            {profileCompletion} % COMPLETÉ
+            {profileCompletion}% COMPLETÉ
           </Text>
-          <View style={styles.heartbeatLine}>
-            <AnimatedView
-              style={[styles.heartbeatIndicator, heartbeatBarStyle]}
-            />
-          </View>
         </View>
       </View>
 
-      {/* Nom, âge, sports, objectifs */}
+      {/* Infos utilisateur */}
       <View style={styles.infoCard}>
         <Text style={styles.name}>
           {user?.name
@@ -663,13 +618,12 @@ export default function ProfileScreen() {
             : ""}
           {userAge ? `, ${userAge}` : ""}
         </Text>
-        {renderSports()}
-        {renderObjectifs()}
+        {renderSports}
+        {renderObjectifs}
       </View>
 
-      {/* Fond gris bas + actions */}
+      {/* Actions */}
       <View style={styles.bottomGrayWrapper}>
-        {/* Cartes actions rapides */}
         <View style={styles.quickActions}>
           <CardAction
             icon="star"
@@ -690,7 +644,7 @@ export default function ProfileScreen() {
             subtitle=""
           />
         </View>
-        {/* Card premium Flintch */}
+
         <View style={styles.premiumCard}>
           <Text style={styles.premiumText}>
             Tu es à court de Like ? {"\n"}
@@ -706,15 +660,26 @@ export default function ProfileScreen() {
       </View>
     </View>
   );
-}
+});
 
-// --- STYLES ---
+ProfileScreen.displayName = "ProfileScreen";
+
+export default ProfileScreen;
+
+// Styles avec ajout pour version minimale
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
     alignItems: "center",
     paddingTop: 0,
+  },
+  // ✅ NOUVEAU: Style pour version minimale
+  minimalistContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8F9FA",
   },
   gradientBg: {
     width: "100%",
@@ -734,6 +699,13 @@ const styles = StyleSheet.create({
     borderRadius: CIRCLE_SIZE / 2,
     backgroundColor: "transparent",
     marginBottom: 5,
+    position: "relative",
+  },
+  progressSvg: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    zIndex: 1,
   },
   profilePicTouchable: {
     position: "absolute",
@@ -742,6 +714,7 @@ const styles = StyleSheet.create({
     width: CIRCLE_SIZE - 26,
     height: CIRCLE_SIZE - 26,
     borderRadius: (CIRCLE_SIZE - 26) / 2,
+    zIndex: 0,
   },
   profileImage: {
     width: CIRCLE_SIZE - 26,
@@ -759,6 +732,15 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#e0e0e0",
     borderStyle: "dashed",
+  },
+  photoLoadingOverlay: {
+    position: "absolute",
+    bottom: 10,
+    right: 50,
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderRadius: 12,
+    padding: 4,
+    zIndex: 5,
   },
   editIcon: {
     position: "absolute",
@@ -784,19 +766,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textAlign: "center",
     marginBottom: 8,
-  },
-  heartbeatLine: {
-    width: 80,
-    height: 2,
-    backgroundColor: "rgba(255, 81, 53, 0.2)",
-    borderRadius: 1,
-    overflow: "hidden",
-  },
-  heartbeatIndicator: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#FF5135",
-    borderRadius: 1,
   },
   infoCard: {
     alignItems: "center",
@@ -841,7 +810,6 @@ const styles = StyleSheet.create({
     marginBottom: 22,
     fontFamily: "Inter_400Regular",
   },
-  // -------- Objectifs en pictos --------
   objectifsList: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -872,7 +840,6 @@ const styles = StyleSheet.create({
     color: "#FF5135",
     fontFamily: "Inter_600SemiBold",
   },
-  // ---------------------------------------
   bottomGrayWrapper: {
     backgroundColor: "#F5F6FA",
     width: "98%",

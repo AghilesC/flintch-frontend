@@ -1,7 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import axios from "axios";
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +23,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+// ✅ IMPORTS OPTIMISÉS
+import { useImagePreloader } from "../../hooks/useImageCache";
+import CacheManager from "../../utils/CacheManager";
 
 const { width, height } = Dimensions.get("window");
 const SWIPE_THRESHOLD = 120;
@@ -44,16 +55,134 @@ interface UserProfile {
   location?: string;
   interests?: string[];
   photos?: string[];
-  sports?: string[]; // Sports aimés par l'utilisateur depuis la BDD
+  sports?: string[];
   created_at: string;
 }
 
-const ExploreScreen = () => {
+// ✅ COMPOSANT OPTIMISÉ AVEC MEMO
+const ProfileCard = React.memo(
+  ({
+    profile,
+    currentPhotoIndex,
+    onNavigateNext,
+    onNavigatePrevious,
+    panHandlers,
+    cardStyle,
+    swipeLabels,
+    isFocused,
+  }: {
+    profile: UserProfile;
+    currentPhotoIndex: number;
+    onNavigateNext: () => void;
+    onNavigatePrevious: () => void;
+    panHandlers: any;
+    cardStyle: any;
+    swipeLabels: any;
+    isFocused: boolean;
+  }) => {
+    // ✅ MÉMORISATION DE L'EXTRACTION D'EMOJI
+    const getSportEmoji = useCallback((sport: string): string => {
+      const parts = sport.split(" ");
+      return parts[0] || "🏋️";
+    }, []);
+
+    // ✅ FIX TYPESCRIPT: Protection contre photos undefined
+    const profilePhotos = profile.photos || [];
+    const currentPhoto =
+      profilePhotos[currentPhotoIndex] || "https://placekitten.com/400/600";
+
+    return (
+      <Animated.View style={[styles.cardContainer, cardStyle]} {...panHandlers}>
+        <Image source={{ uri: currentPhoto }} style={styles.profileImage} />
+
+        {/* Zones de navigation photo - seulement si focused */}
+        {isFocused && (
+          <>
+            <TouchableOpacity
+              style={styles.leftPhotoZone}
+              onPress={onNavigatePrevious}
+              activeOpacity={1}
+            />
+            <TouchableOpacity
+              style={styles.rightPhotoZone}
+              onPress={onNavigateNext}
+              activeOpacity={1}
+            />
+          </>
+        )}
+
+        {/* Photo indicators - Fix TypeScript */}
+        <View style={styles.indicatorsContainer}>
+          {[...Array(profilePhotos.length || 1)].map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.indicator,
+                {
+                  backgroundColor:
+                    index === currentPhotoIndex
+                      ? COLORS.white
+                      : "rgba(255,255,255,0.4)",
+                },
+              ]}
+            />
+          ))}
+        </View>
+
+        {/* Interest badges - Sports - Fix TypeScript */}
+        {profile.sports &&
+          Array.isArray(profile.sports) &&
+          profile.sports.length > 0 && (
+            <View style={styles.interestBadges}>
+              {profile.sports.slice(0, 3).map((sport, index) => (
+                <View key={index} style={styles.interestBadge}>
+                  <Text style={styles.sportEmoji}>{getSportEmoji(sport)}</Text>
+                </View>
+              ))}
+              {profile.sports.length > 3 && (
+                <View style={styles.interestBadge}>
+                  <Text style={styles.plusText}>
+                    +{profile.sports.length - 3}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+        {/* Profile Info */}
+        <View style={styles.profileInfo}>
+          <Text style={styles.profileName}>{profile.name}</Text>
+          {profile.age && <Text style={styles.profileAge}>{profile.age}</Text>}
+          {profile.bio && (
+            <Text style={styles.profileBio} numberOfLines={2}>
+              {profile.bio}
+            </Text>
+          )}
+        </View>
+
+        {/* Swipe Labels - seulement si focused */}
+        {isFocused && swipeLabels}
+      </Animated.View>
+    );
+  }
+);
+
+const ExploreScreen = React.memo(() => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
+
+  // ✅ REFS POUR ÉVITER LES APPELS MULTIPLES ET BOUCLES INFINIES
+  const isLoadingRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const lastFetchTime = useRef(0);
+  const mountedRef = useRef(true);
+
+  // ✅ HOOKS OPTIMISÉS
+  const { preloadImages } = useImagePreloader();
 
   const position = useRef(new Animated.ValueXY()).current;
   const swipeAnimatedValue = useRef(new Animated.Value(0)).current;
@@ -64,160 +193,423 @@ const ExploreScreen = () => {
   const likeButtonScale = useRef(new Animated.Value(1)).current;
   const moreButtonScale = useRef(new Animated.Value(1)).current;
 
+  // ✅ FOCUS EFFECT POUR ÉCONOMISER RESSOURCES
+  useFocusEffect(
+    useCallback(() => {
+      console.log("🎯 ExploreScreen focused");
+      setIsFocused(true);
+      mountedRef.current = true;
+
+      // Charger les données seulement si pas déjà chargées récemment
+      if (!hasLoadedRef.current) {
+        loadProfiles();
+      }
+
+      return () => {
+        console.log("😴 ExploreScreen blurred - pausing animations");
+        setIsFocused(false);
+        mountedRef.current = false;
+        // Reset animations values
+        position.setValue({ x: 0, y: 0 });
+        swipeAnimatedValue.setValue(0);
+        rejectButtonScale.setValue(1);
+        superLikeButtonScale.setValue(1);
+        likeButtonScale.setValue(1);
+        moreButtonScale.setValue(1);
+      };
+    }, [])
+  );
+
+  // ✅ CLEANUP AU DÉMONTAGE
   useEffect(() => {
-    loadProfiles();
+    return () => {
+      mountedRef.current = false;
+      isLoadingRef.current = false;
+      hasLoadedRef.current = false;
+    };
   }, []);
+
+  // ✅ LOAD PROFILES AVEC CACHE INTELLIGENT ET PROTECTION CONTRE BOUCLES
+  const loadProfiles = useCallback(
+    async (force = false) => {
+      // ⚡ PRÉVENTION DES APPELS MULTIPLES
+      if (isLoadingRef.current) {
+        console.log("⚠️ Already loading profiles, skipping...");
+        return;
+      }
+
+      // ⚡ THROTTLING - Max 1 appel par 15 secondes
+      const now = Date.now();
+      const THROTTLE_TIME = 15 * 1000; // 15 secondes
+      if (!force && now - lastFetchTime.current < THROTTLE_TIME) {
+        console.log("⚠️ Too soon since last fetch, skipping...", {
+          lastFetch: lastFetchTime.current,
+          now,
+          diff: now - lastFetchTime.current,
+          throttleTime: THROTTLE_TIME,
+        });
+        return;
+      }
+
+      // ⚡ CHECK SI COMPOSANT TOUJOURS MONTÉ
+      if (!mountedRef.current) {
+        console.log("⚠️ Component unmounted, skipping fetch");
+        return;
+      }
+
+      try {
+        console.log("🌐 Starting loadProfiles, force:", force);
+        isLoadingRef.current = true;
+        lastFetchTime.current = now;
+
+        // ⚡ Cache mémoire first (si pas forcé)
+        if (!force) {
+          const cachedProfiles =
+            CacheManager.getMemoryCache("discover_profiles");
+          if (cachedProfiles && cachedProfiles.length > 0) {
+            console.log(
+              "⚡ Profiles loaded from MEMORY cache:",
+              cachedProfiles.length
+            );
+            if (mountedRef.current) {
+              setProfiles(cachedProfiles);
+              setLoading(false);
+              hasLoadedRef.current = true;
+
+              // ✅ Précharger les images en arrière-plan
+              const allPhotoUrls = cachedProfiles
+                .flatMap((profile: UserProfile) => profile.photos || [])
+                .filter(Boolean)
+                .slice(0, 20);
+
+              if (allPhotoUrls.length > 0) {
+                console.log("🖼️ Preloading", allPhotoUrls.length, "photos");
+                preloadImages(allPhotoUrls);
+              }
+            }
+            isLoadingRef.current = false;
+            return;
+          }
+        }
+
+        // 📦 Cache persistant (si pas forcé)
+        if (!force) {
+          const persistentProfiles = await CacheManager.getPersistentCache(
+            "discover_profiles"
+          );
+          if (
+            persistentProfiles &&
+            persistentProfiles.length > 0 &&
+            mountedRef.current
+          ) {
+            console.log(
+              "📦 Profiles loaded from persistent cache:",
+              persistentProfiles.length
+            );
+            setProfiles(persistentProfiles);
+            setLoading(false);
+            hasLoadedRef.current = true;
+
+            // Remettre en cache mémoire
+            CacheManager.setMemoryCache(
+              "discover_profiles",
+              persistentProfiles,
+              10 * 60 * 1000
+            );
+
+            // ✅ Précharger les images
+            const allPhotoUrls = persistentProfiles
+              .flatMap((profile: UserProfile) => profile.photos || [])
+              .filter(Boolean)
+              .slice(0, 20);
+
+            if (allPhotoUrls.length > 0) {
+              console.log("🖼️ Preloading", allPhotoUrls.length, "photos");
+              preloadImages(allPhotoUrls);
+            }
+            isLoadingRef.current = false;
+            return;
+          }
+        }
+
+        // 🌐 Fetch API seulement si nécessaire
+        if (!mountedRef.current) {
+          console.log("⚠️ Component unmounted before API call");
+          isLoadingRef.current = false;
+          return;
+        }
+
+        console.log("🌐 Fetching profiles from API");
+        if (mountedRef.current) {
+          setLoading(true);
+        }
+
+        const token = await AsyncStorage.getItem("token");
+        if (!token) {
+          throw new Error("Token non trouvé");
+        }
+
+        const response = await axios.get("http://localhost:8000/api/discover", {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 10000, // 10 secondes timeout
+        });
+
+        if (!mountedRef.current) {
+          console.log("⚠️ Component unmounted during API call");
+          isLoadingRef.current = false;
+          return;
+        }
+
+        const data = response.data.data || response.data;
+        console.log(
+          "✅ API Response received:",
+          Array.isArray(data) ? data.length : "invalid data"
+        );
+
+        if (Array.isArray(data)) {
+          setProfiles(data);
+          hasLoadedRef.current = true;
+
+          // ✅ Double cache pour performance
+          CacheManager.setMemoryCache(
+            "discover_profiles",
+            data,
+            10 * 60 * 1000
+          );
+          await CacheManager.setPersistentCache(
+            "discover_profiles",
+            data,
+            15 * 60 * 1000
+          );
+
+          // ✅ Précharger les images
+          const allPhotoUrls = data
+            .flatMap((profile: UserProfile) => profile.photos || [])
+            .filter(Boolean)
+            .slice(0, 20);
+
+          if (allPhotoUrls.length > 0) {
+            console.log("🖼️ Preloading", allPhotoUrls.length, "photos");
+            preloadImages(allPhotoUrls);
+          }
+        } else {
+          console.warn("⚠️ Invalid API response format:", data);
+          setProfiles([]);
+        }
+      } catch (error) {
+        console.error("❌ Erreur chargement profils:", error);
+        if (mountedRef.current) {
+          Alert.alert("Erreur", "Impossible de charger les profils.");
+        }
+      } finally {
+        isLoadingRef.current = false;
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [preloadImages]
+  );
+
+  // ✅ CHARGEMENT INITIAL OPTIMISÉ - UNE SEULE FOIS
+  useEffect(() => {
+    if (isFocused && !hasLoadedRef.current && !isLoadingRef.current) {
+      console.log("🚀 Initial load triggered");
+      loadProfiles();
+    }
+  }, [isFocused]); // Enlever loadProfiles des dépendances pour éviter les boucles
 
   // Réinitialiser l'index des photos quand on change de profil
   useEffect(() => {
     setCurrentPhotoIndex(0);
   }, [currentIndex]);
 
-  const loadProfiles = async () => {
-    try {
-      setLoading(true);
+  // ✅ HANDLE SWIPE OPTIMISÉ
+  const handleSwipe = useCallback(
+    async (direction: "left" | "right") => {
+      if (!mountedRef.current) return;
+
+      const profile = profiles[currentIndex];
       const token = await AsyncStorage.getItem("token");
-      if (!token) throw new Error("Token non trouvé");
+      if (!token || !profile) return;
 
-      const response = await axios.get("http://localhost:8000/api/discover", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      try {
+        if (direction === "right") {
+          const res = await axios.post(
+            "http://localhost:8000/api/matches",
+            { user_id: profile.id },
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              timeout: 5000,
+            }
+          );
 
-      const data = response.data.data || response.data;
-      setProfiles(data);
-    } catch (error) {
-      console.error("Erreur chargement profils :", error);
-      Alert.alert("Erreur", "Impossible de charger les profils.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSwipe = async (direction: "left" | "right") => {
-    const profile = profiles[currentIndex];
-    const token = await AsyncStorage.getItem("token");
-    if (!token || !profile) return;
-
-    try {
-      if (direction === "right") {
-        const res = await axios.post(
-          "http://localhost:8000/api/matches",
-          { user_id: profile.id },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-
-        if (res.data?.is_mutual) {
-          Alert.alert(
-            "🎉 C'est un match !",
-            `${profile.name} vous a liké aussi !`
+          if (res.data?.is_mutual && mountedRef.current) {
+            Alert.alert(
+              "🎉 C'est un match !",
+              `${profile.name} vous a liké aussi !`
+            );
+          }
+        } else {
+          await axios.post(
+            "http://localhost:8000/api/reject",
+            { user_id: profile.id },
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              timeout: 5000,
+            }
           );
         }
-      } else {
-        await axios.post(
-          "http://localhost:8000/api/reject",
-          { user_id: profile.id },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+      } catch (err) {
+        console.error("❌ Erreur swipe:", err);
       }
-    } catch (err) {
-      console.error("Erreur swipe :", err);
-    }
 
-    position.setValue({ x: 0, y: 0 });
-    swipeAnimatedValue.setValue(0);
-    setCurrentIndex((prev) => prev + 1);
-  };
+      // ✅ Reset animations et passer au suivant
+      if (mountedRef.current) {
+        position.setValue({ x: 0, y: 0 });
+        swipeAnimatedValue.setValue(0);
+        setCurrentIndex((prev) => prev + 1);
+      }
+    },
+    [profiles, currentIndex, position, swipeAnimatedValue]
+  );
 
-  const forceSwipe = (direction: "left" | "right") => {
-    const x = direction === "right" ? width : -width;
-    Animated.timing(position, {
-      toValue: { x, y: 0 },
-      duration: SWIPE_OUT_DURATION,
-      useNativeDriver: false,
-    }).start(() => handleSwipe(direction));
-  };
+  // ✅ ANIMATIONS OPTIMISÉES AVEC PROTECTION FOCUS
+  const forceSwipe = useCallback(
+    (direction: "left" | "right") => {
+      if (!isFocused || !mountedRef.current) return; // Skip si pas focus
 
-  const resetPosition = () => {
+      const x = direction === "right" ? width : -width;
+      Animated.timing(position, {
+        toValue: { x, y: 0 },
+        duration: SWIPE_OUT_DURATION,
+        useNativeDriver: false,
+      }).start(() => {
+        if (mountedRef.current) {
+          handleSwipe(direction);
+        }
+      });
+    },
+    [position, handleSwipe, isFocused]
+  );
+
+  const resetPosition = useCallback(() => {
+    if (!isFocused || !mountedRef.current) return; // Skip si pas focus
+
     Animated.spring(position, {
       toValue: { x: 0, y: 0 },
       friction: 4,
       useNativeDriver: false,
     }).start();
     swipeAnimatedValue.setValue(0);
-  };
+  }, [position, swipeAnimatedValue, isFocused]);
 
-  // Navigation entre les photos
-  const navigateToNextPhoto = () => {
+  // ✅ NAVIGATION PHOTOS OPTIMISÉE AVEC FIX TYPESCRIPT
+  const navigateToNextPhoto = useCallback(() => {
     const profile = profiles[currentIndex];
-    if (!profile?.photos || profile.photos.length <= 1) return;
+    const photos = profile?.photos || [];
+    if (photos.length <= 1) return;
 
     setCurrentPhotoIndex((prevIndex) =>
-      prevIndex < profile.photos.length - 1 ? prevIndex + 1 : prevIndex
+      prevIndex < photos.length - 1 ? prevIndex + 1 : prevIndex
     );
-  };
+  }, [profiles, currentIndex]);
 
-  const navigateToPreviousPhoto = () => {
+  const navigateToPreviousPhoto = useCallback(() => {
     setCurrentPhotoIndex((prevIndex) =>
       prevIndex > 0 ? prevIndex - 1 : prevIndex
     );
-  };
+  }, []);
 
-  // Animation des boutons
-  const animateButton = (
-    buttonScale: Animated.Value,
-    callback?: () => void
-  ) => {
-    Animated.sequence([
-      Animated.timing(buttonScale, {
-        toValue: 0.85,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(buttonScale, {
-        toValue: 1,
-        friction: 3,
-        tension: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      if (callback) callback();
-    });
-  };
+  // ✅ ANIMATIONS BOUTONS OPTIMISÉES
+  const animateButton = useCallback(
+    (buttonScale: Animated.Value, callback?: () => void) => {
+      if (!isFocused || !mountedRef.current) return; // Skip animation si pas focus
 
-  const handleRejectPress = () => {
+      Animated.sequence([
+        Animated.timing(buttonScale, {
+          toValue: 0.85,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.spring(buttonScale, {
+          toValue: 1,
+          friction: 3,
+          tension: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        if (callback && mountedRef.current) callback();
+      });
+    },
+    [isFocused]
+  );
+
+  // ✅ HANDLERS OPTIMISÉS
+  const handleRejectPress = useCallback(() => {
     animateButton(rejectButtonScale, () => forceSwipe("left"));
-  };
+  }, [animateButton, rejectButtonScale, forceSwipe]);
 
-  const handleSuperLikePress = () => {
+  const handleSuperLikePress = useCallback(() => {
     animateButton(superLikeButtonScale, () =>
       Alert.alert("Super Connect!", "Fonctionnalité premium")
     );
-  };
+  }, [animateButton, superLikeButtonScale]);
 
-  const handleLikePress = () => {
+  const handleLikePress = useCallback(() => {
     animateButton(likeButtonScale, () => forceSwipe("right"));
-  };
+  }, [animateButton, likeButtonScale, forceSwipe]);
 
-  const handleMorePress = () => {
+  const handleMorePress = useCallback(() => {
     animateButton(moreButtonScale, () => setShowOptionsModal(true));
-  };
+  }, [animateButton, moreButtonScale]);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gesture) => {
-        position.setValue({ x: gesture.dx, y: gesture.dy });
-        swipeAnimatedValue.setValue(gesture.dx);
-      },
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dx > SWIPE_THRESHOLD) forceSwipe("right");
-        else if (gesture.dx < -SWIPE_THRESHOLD) forceSwipe("left");
-        else resetPosition();
-      },
-    })
-  ).current;
+  // ✅ REFRESH OPTIMISÉ
+  const handleRefresh = useCallback(async () => {
+    console.log("🔄 Manual refresh triggered");
 
-  const getCardStyle = () => {
+    // Invalider caches
+    CacheManager.setMemoryCache("discover_profiles", null, 0);
+    await CacheManager.invalidateCache("discover_profiles");
+
+    // Reset state
+    hasLoadedRef.current = false;
+    lastFetchTime.current = 0;
+    setCurrentIndex(0);
+
+    // Force reload
+    await loadProfiles(true);
+  }, [loadProfiles]);
+
+  // ✅ PAN RESPONDER OPTIMISÉ AVEC PROTECTION FOCUS
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => isFocused && mountedRef.current, // ✅ Only if focused
+        onPanResponderMove: (_, gesture) => {
+          if (!isFocused || !mountedRef.current) return; // ✅ Skip si pas focus
+          position.setValue({ x: gesture.dx, y: gesture.dy });
+          swipeAnimatedValue.setValue(gesture.dx);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          if (!isFocused || !mountedRef.current) return; // ✅ Skip si pas focus
+          if (gesture.dx > SWIPE_THRESHOLD) forceSwipe("right");
+          else if (gesture.dx < -SWIPE_THRESHOLD) forceSwipe("left");
+          else resetPosition();
+        },
+      }),
+    [isFocused, position, swipeAnimatedValue, forceSwipe, resetPosition]
+  );
+
+  // ✅ STYLES MÉMORISÉS AVEC PROTECTION FOCUS
+  const cardStyle = useMemo(() => {
+    if (!isFocused || !mountedRef.current) {
+      // Style statique si pas focus
+      return {
+        transform: [{ rotate: "0deg" }, { scale: 1 }],
+      };
+    }
+
     const rotate = swipeAnimatedValue.interpolate({
       inputRange: [-width / 2, 0, width / 2],
       outputRange: ["-5deg", "0deg", "5deg"],
@@ -233,10 +625,15 @@ const ExploreScreen = () => {
       ...position.getLayout(),
       transform: [{ rotate }, { scale }],
     };
-  };
+  }, [position, swipeAnimatedValue, isFocused]);
 
-  // Animation pour les labels de swipe
-  const getSwipeLabels = () => {
+  // ✅ SWIPE LABELS MÉMORISÉS AVEC PROTECTION FOCUS
+  const swipeLabels = useMemo(() => {
+    if (!isFocused || !mountedRef.current) {
+      // Pas de labels si pas focus
+      return null;
+    }
+
     const connectOpacity = swipeAnimatedValue.interpolate({
       inputRange: [0, 150],
       outputRange: [0, 1],
@@ -261,17 +658,70 @@ const ExploreScreen = () => {
       extrapolate: "clamp",
     });
 
-    return { connectOpacity, rejectOpacity, connectScale, rejectScale };
-  };
+    return (
+      <>
+        <Animated.View
+          style={[
+            styles.swipeLabel,
+            styles.connectLabel,
+            {
+              opacity: connectOpacity,
+              transform: [{ scale: connectScale }],
+            },
+          ]}
+        >
+          <View style={styles.connectLabelInner}>
+            <View style={styles.connectEmojiContainer}>
+              <Text style={styles.connectEmoji}>💪</Text>
+            </View>
+            <Text style={styles.connectText}>CONNECT</Text>
+            <View style={styles.connectSubtext}>
+              <Text style={styles.connectSubtextText}>LET'S TRAIN!</Text>
+            </View>
+          </View>
+        </Animated.View>
+
+        <Animated.View
+          style={[
+            styles.swipeLabel,
+            styles.rejectLabel,
+            {
+              opacity: rejectOpacity,
+              transform: [{ scale: rejectScale }],
+            },
+          ]}
+        >
+          <View style={styles.rejectLabelInner}>
+            <View style={styles.rejectIconContainer}>
+              <Ionicons name="close" size={48} color={COLORS.white} />
+            </View>
+            <Text style={styles.rejectText}>PASS</Text>
+            <View style={styles.rejectSubtext}>
+              <Text style={styles.rejectSubtextText}>NOT TODAY</Text>
+            </View>
+          </View>
+        </Animated.View>
+      </>
+    );
+  }, [swipeAnimatedValue, isFocused]);
 
   const currentProfile = profiles[currentIndex];
 
-  // Extrait l'emoji du sport (ex: "🏀 Basket" -> "🏀")
-  const getSportEmoji = (sport: string): string => {
-    // Maintenant que la BDD est corrigée, on extrait juste l'emoji
-    const parts = sport.split(" ");
-    return parts[0] || "🏋️"; // Premier élément = emoji
-  };
+  // ✅ RENDU MINIMAL SI PAS FOCUS (économise ressources)
+  if (!isFocused) {
+    return (
+      <View style={styles.container}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="transparent"
+          translucent
+        />
+        <View style={styles.minimalistContainer}>
+          <Text style={styles.minimalistText}>Explore</Text>
+        </View>
+      </View>
+    );
+  }
 
   if (loading) {
     return (
@@ -291,7 +741,7 @@ const ExploreScreen = () => {
           Revenez plus tard pour découvrir de nouveaux partenaires
           d'entraînement !
         </Text>
-        <TouchableOpacity style={styles.refreshButton} onPress={loadProfiles}>
+        <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
           <Text style={styles.refreshButtonText}>Actualiser</Text>
         </TouchableOpacity>
       </View>
@@ -309,141 +759,16 @@ const ExploreScreen = () => {
       {/* Profile Card */}
       {currentProfile && (
         <View style={styles.cardsContainer}>
-          <Animated.View
-            style={[styles.cardContainer, getCardStyle()]}
-            {...panResponder.panHandlers}
-          >
-            <Image
-              source={{
-                uri:
-                  currentProfile.photos?.[currentPhotoIndex] ||
-                  "https://placekitten.com/400/600",
-              }}
-              style={styles.profileImage}
-            />
-
-            {/* Zones de navigation photo invisibles */}
-            <TouchableOpacity
-              style={styles.leftPhotoZone}
-              onPress={navigateToPreviousPhoto}
-              activeOpacity={1}
-            />
-            <TouchableOpacity
-              style={styles.rightPhotoZone}
-              onPress={navigateToNextPhoto}
-              activeOpacity={1}
-            />
-
-            {/* Photo indicators */}
-            <View style={styles.indicatorsContainer}>
-              {[...Array(currentProfile.photos?.length || 1)].map(
-                (_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.indicator,
-                      {
-                        backgroundColor:
-                          index === currentPhotoIndex
-                            ? COLORS.white
-                            : "rgba(255,255,255,0.4)",
-                      },
-                    ]}
-                  />
-                )
-              )}
-            </View>
-
-            {/* Interest badges - Sports aimés depuis la BDD */}
-            {currentProfile.sports && currentProfile.sports.length > 0 && (
-              <View style={styles.interestBadges}>
-                {currentProfile.sports.slice(0, 3).map((sport, index) => (
-                  <View key={index} style={styles.interestBadge}>
-                    <Text style={styles.sportEmoji}>
-                      {getSportEmoji(sport)}
-                    </Text>
-                  </View>
-                ))}
-                {currentProfile.sports.length > 3 && (
-                  <View style={styles.interestBadge}>
-                    <Text style={styles.plusText}>
-                      +{currentProfile.sports.length - 3}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Profile Info */}
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{currentProfile.name}</Text>
-              {currentProfile.age && (
-                <Text style={styles.profileAge}>{currentProfile.age}</Text>
-              )}
-              {currentProfile.bio && (
-                <Text style={styles.profileBio} numberOfLines={2}>
-                  {currentProfile.bio}
-                </Text>
-              )}
-            </View>
-
-            {/* Swipe Labels */}
-            {(() => {
-              const {
-                connectOpacity,
-                rejectOpacity,
-                connectScale,
-                rejectScale,
-              } = getSwipeLabels();
-              return (
-                <>
-                  <Animated.View
-                    style={[
-                      styles.swipeLabel,
-                      styles.connectLabel,
-                      {
-                        opacity: connectOpacity,
-                        transform: [{ scale: connectScale }],
-                      },
-                    ]}
-                  >
-                    <View style={styles.connectLabelInner}>
-                      <View style={styles.connectEmojiContainer}>
-                        <Text style={styles.connectEmoji}>💪</Text>
-                      </View>
-                      <Text style={styles.connectText}>CONNECT</Text>
-                      <View style={styles.connectSubtext}>
-                        <Text style={styles.connectSubtextText}>
-                          LET'S TRAIN!
-                        </Text>
-                      </View>
-                    </View>
-                  </Animated.View>
-
-                  <Animated.View
-                    style={[
-                      styles.swipeLabel,
-                      styles.rejectLabel,
-                      {
-                        opacity: rejectOpacity,
-                        transform: [{ scale: rejectScale }],
-                      },
-                    ]}
-                  >
-                    <View style={styles.rejectLabelInner}>
-                      <View style={styles.rejectIconContainer}>
-                        <Ionicons name="close" size={48} color={COLORS.white} />
-                      </View>
-                      <Text style={styles.rejectText}>PASS</Text>
-                      <View style={styles.rejectSubtext}>
-                        <Text style={styles.rejectSubtextText}>NOT TODAY</Text>
-                      </View>
-                    </View>
-                  </Animated.View>
-                </>
-              );
-            })()}
-          </Animated.View>
+          <ProfileCard
+            profile={currentProfile}
+            currentPhotoIndex={currentPhotoIndex}
+            onNavigateNext={navigateToNextPhoto}
+            onNavigatePrevious={navigateToPreviousPhoto}
+            panHandlers={panResponder.panHandlers}
+            cardStyle={cardStyle}
+            swipeLabels={swipeLabels}
+            isFocused={isFocused}
+          />
         </View>
       )}
 
@@ -529,7 +854,9 @@ const ExploreScreen = () => {
       </Modal>
     </View>
   );
-};
+});
+
+ExploreScreen.displayName = "ExploreScreen";
 
 export default ExploreScreen;
 
@@ -537,6 +864,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.lightGray,
+  },
+  // ✅ NOUVEAU: Style minimaliste
+  minimalistContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: COLORS.lightGray,
+  },
+  minimalistText: {
+    fontSize: 24,
+    fontWeight: "600",
+    color: COLORS.midnight,
   },
   loadingContainer: {
     flex: 1,
@@ -607,13 +946,12 @@ const styles = StyleSheet.create({
     height: "100%",
     resizeMode: "cover",
   },
-  // Zones de navigation photo
   leftPhotoZone: {
     position: "absolute",
     top: 0,
     left: 0,
     width: "30%",
-    height: "70%", // Jusqu'aux infos du profil
+    height: "70%",
     zIndex: 10,
   },
   rightPhotoZone: {
@@ -621,7 +959,7 @@ const styles = StyleSheet.create({
     top: 0,
     right: 0,
     width: "30%",
-    height: "70%", // Jusqu'aux infos du profil
+    height: "70%",
     zIndex: 10,
   },
   indicatorsContainer: {

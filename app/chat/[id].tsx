@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import axios from "axios";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   FlatList,
@@ -18,6 +19,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+// ✅ IMPORTS OPTIMISÉS
+import CacheManager from "../../utils/CacheManager";
 
 const COLORS = {
   primary: "#0E4A7B",
@@ -38,113 +42,26 @@ interface Message {
   isMe: boolean;
 }
 
-const IndividualChatScreen = () => {
-  const router = useRouter();
-  const params = useLocalSearchParams();
-  const { id: userId, name, avatar } = params;
+// ✅ COMPOSANT MESSAGE OPTIMISÉ AVEC MEMO
+const MessageItem = React.memo(
+  ({
+    item,
+    selectedMessageId,
+    onPress,
+    scaleAnimation,
+  }: {
+    item: Message;
+    selectedMessageId: string | null;
+    onPress: (id: string) => void;
+    scaleAnimation: Animated.Value;
+  }) => {
+    const handlePress = useCallback(() => {
+      onPress(item.id);
+    }, [item.id, onPress]);
 
-  console.log("🧭 Paramètres route:", params);
-
-  if (!userId) {
-    console.warn("⚠️ Aucun userId trouvé dans les paramètres de route.");
-  }
-
-  const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
-    null
-  );
-  const flatListRef = useRef<FlatList>(null);
-  const scaleAnimations = useRef<Record<string, Animated.Value>>({}).current;
-
-  useEffect(() => {
-    fetchMessages();
-  }, []);
-
-  const fetchMessages = async () => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      const res = await axios.get(
-        `http://localhost:8000/api/messages/${userId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      console.log("📨 Fetched messages:", res.data);
-
-      const formatted = res.data.messages.map((msg: any) => ({
-        id: msg.id.toString(),
-        text: msg.message,
-        timestamp: msg.sent_at ?? msg.created_at,
-        isMe: msg.sender_id === res.data.current_user_id,
-      }));
-
-      console.log("✅ Formatted messages:", formatted);
-      setMessages(formatted);
-    } catch (error) {
-      console.error("❌ Erreur fetch messages:", error);
-    }
-  };
-
-  const sendMessage = async () => {
-    if (!message.trim()) return;
-    try {
-      const token = await AsyncStorage.getItem("token");
-      const payload = {
-        receiver_id: userId,
-        message,
-      };
-      console.log("✉️ Envoi message:", payload);
-      await axios.post("http://localhost:8000/api/messages/send", payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        text: message,
-        timestamp: new Date().toLocaleTimeString("fr-FR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        isMe: true,
-      };
-
-      setMessages((prev) => [...prev, newMessage]);
-      setMessage("");
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    } catch (error) {
-      console.error("❌ Erreur envoi message:", error);
-    }
-  };
-
-  const handleMessagePress = (id: string) => {
-    setSelectedMessageId((prev) => (prev === id ? null : id));
-    if (!scaleAnimations[id]) {
-      scaleAnimations[id] = new Animated.Value(1);
-    }
-
-    Animated.sequence([
-      Animated.timing(scaleAnimations[id], {
-        toValue: 1.03,
-        duration: 80,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnimations[id], {
-        toValue: 1,
-        friction: 6,
-        tension: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  const renderMessage = ({ item }: { item: Message }) => {
-    const scale = scaleAnimations[item.id] || new Animated.Value(1);
     return (
-      <Pressable onPress={() => handleMessagePress(item.id)}>
-        <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable onPress={handlePress}>
+        <Animated.View style={{ transform: [{ scale: scaleAnimation }] }}>
           <View
             style={[
               styles.messageContainer,
@@ -173,17 +90,278 @@ const IndividualChatScreen = () => {
         </Animated.View>
       </Pressable>
     );
-  };
+  }
+);
+
+// ✅ COMPOSANT PRINCIPAL AVEC MEMO
+const IndividualChatScreen = React.memo(() => {
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  const { id: userId, name, avatar } = params;
+
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
+    null
+  );
+  const [isFocused, setIsFocused] = useState(true);
+  const [lastFetch, setLastFetch] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const flatListRef = useRef<FlatList>(null);
+  const scaleAnimations = useRef<Record<string, Animated.Value>>({}).current;
+
+  console.log("🧭 Paramètres route:", params);
+
+  if (!userId) {
+    console.warn("⚠️ Aucun userId trouvé dans les paramètres de route.");
+  }
+
+  // ✅ OPTIMISATION: Focus effect
+  useFocusEffect(
+    useCallback(() => {
+      console.log("🎯 IndividualChatScreen focused");
+      setIsFocused(true);
+      return () => {
+        console.log("😴 IndividualChatScreen blurred");
+        setIsFocused(false);
+        // ✅ Cleanup animations quand on quitte
+        Object.values(scaleAnimations).forEach((anim) => {
+          anim.setValue(1);
+        });
+      };
+    }, [scaleAnimations])
+  );
+
+  // ✅ FETCH MESSAGES AVEC CACHE INTELLIGENT
+  const fetchMessages = useCallback(
+    async (force = false) => {
+      const now = Date.now();
+      const CACHE_DURATION = 30 * 1000; // 30 secondes pour les messages
+      const cacheKey = `messages_${userId}`;
+
+      // Skip si pas forcé et récent
+      if (!force && now - lastFetch < CACHE_DURATION && !isFocused) {
+        console.log("🚀 Messages: Skipping fetch (recent or not focused)");
+        return;
+      }
+
+      try {
+        // ⚡ Cache mémoire first
+        if (!force) {
+          const cachedMessages = CacheManager.getMemoryCache(cacheKey);
+          if (cachedMessages && cachedMessages.length >= 0) {
+            console.log("⚡ Messages loaded from MEMORY cache");
+            setMessages(cachedMessages);
+            setLoading(false);
+            setLastFetch(now);
+            return;
+          }
+        }
+
+        // 📦 Cache persistant
+        if (!force) {
+          const persistentMessages = await CacheManager.getPersistentCache(
+            cacheKey
+          );
+          if (persistentMessages && persistentMessages.length >= 0) {
+            console.log("📦 Messages loaded from persistent cache");
+            setMessages(persistentMessages);
+            setLoading(false);
+            setLastFetch(now);
+
+            // Remettre en cache mémoire
+            CacheManager.setMemoryCache(
+              cacheKey,
+              persistentMessages,
+              2 * 60 * 1000
+            );
+            return;
+          }
+        }
+
+        console.log("🌐 Fetching messages from API");
+        setLoading(true);
+
+        const token = await AsyncStorage.getItem("token");
+        const res = await axios.get(
+          `http://localhost:8000/api/messages/${userId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        console.log("📨 Fetched messages:", res.data);
+
+        const formatted = res.data.messages.map((msg: any) => ({
+          id: msg.id.toString(),
+          text: msg.message,
+          timestamp: msg.sent_at ?? msg.created_at,
+          isMe: msg.sender_id === res.data.current_user_id,
+        }));
+
+        console.log("✅ Formatted messages:", formatted);
+        setMessages(formatted);
+        setLastFetch(now);
+
+        // ✅ Double cache pour performance
+        CacheManager.setMemoryCache(cacheKey, formatted, 2 * 60 * 1000);
+        await CacheManager.setPersistentCache(
+          cacheKey,
+          formatted,
+          5 * 60 * 1000
+        );
+      } catch (error) {
+        console.error("❌ Erreur fetch messages:", error);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [userId, lastFetch, isFocused]
+  );
+
+  // ✅ SEND MESSAGE OPTIMISÉ
+  const sendMessage = useCallback(async () => {
+    if (!message.trim()) return;
+
+    const messageText = message.trim();
+    const tempId = Date.now().toString();
+
+    // ✅ Optimistic update
+    const newMessage: Message = {
+      id: tempId,
+      text: messageText,
+      timestamp: new Date().toLocaleTimeString("fr-FR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      isMe: true,
+    };
+
+    setMessages((prev) => [...prev, newMessage]);
+    setMessage("");
+
+    // ✅ Scroll to end
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+
+    try {
+      const token = await AsyncStorage.getItem("token");
+      const payload = {
+        receiver_id: userId,
+        message: messageText,
+      };
+
+      console.log("✉️ Envoi message:", payload);
+      await axios.post("http://localhost:8000/api/messages/send", payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      // ✅ Invalider cache pour refresh à la prochaine visite
+      const cacheKey = `messages_${userId}`;
+      CacheManager.setMemoryCache(cacheKey, null, 0);
+      await CacheManager.invalidateCache(cacheKey);
+
+      // ✅ Refresh après envoi
+      setTimeout(() => {
+        fetchMessages(true);
+      }, 500);
+    } catch (error) {
+      console.error("❌ Erreur envoi message:", error);
+
+      // ✅ Rollback en cas d'erreur
+      setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
+    }
+  }, [message, userId, fetchMessages]);
+
+  // ✅ HANDLE MESSAGE PRESS OPTIMISÉ
+  const handleMessagePress = useCallback(
+    (id: string) => {
+      if (!isFocused) return; // Skip si pas focus
+
+      setSelectedMessageId((prev) => (prev === id ? null : id));
+
+      if (!scaleAnimations[id]) {
+        scaleAnimations[id] = new Animated.Value(1);
+      }
+
+      Animated.sequence([
+        Animated.timing(scaleAnimations[id], {
+          toValue: 1.03,
+          duration: 80,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scaleAnimations[id], {
+          toValue: 1,
+          friction: 6,
+          tension: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    },
+    [scaleAnimations, isFocused]
+  );
+
+  // ✅ CHARGEMENT INITIAL
+  useEffect(() => {
+    if (isFocused) {
+      fetchMessages();
+    }
+  }, [isFocused, fetchMessages]);
+
+  // ✅ RENDER MESSAGE OPTIMISÉ
+  const renderMessage = useCallback(
+    ({ item }: { item: Message }) => {
+      const scale = scaleAnimations[item.id] || new Animated.Value(1);
+      return (
+        <MessageItem
+          item={item}
+          selectedMessageId={selectedMessageId}
+          onPress={handleMessagePress}
+          scaleAnimation={scale}
+        />
+      );
+    },
+    [selectedMessageId, handleMessagePress, scaleAnimations]
+  );
+
+  // ✅ KEY EXTRACTOR OPTIMISÉ
+  const keyExtractor = useCallback((item: Message) => item.id, []);
+
+  // ✅ GET ITEM LAYOUT pour performance FlatList
+  const getItemLayout = useCallback(
+    (data: any, index: number) => ({
+      length: 60, // hauteur moyenne d'un message
+      offset: 60 * index,
+      index,
+    }),
+    []
+  );
+
+  // ✅ HANDLE BACK OPTIMISÉ
+  const handleBack = useCallback(() => {
+    router.push("/chat");
+  }, [router]);
+
+  // ✅ RENDU MINIMAL SI PAS FOCUS
+  if (!isFocused) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        <View style={styles.minimalistContainer}>
+          <Text style={styles.minimalistText}>Chat avec {name}</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.push("/chat")}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="arrow-back" size={24} color={COLORS.accent} />
         </TouchableOpacity>
 
@@ -200,10 +378,10 @@ const IndividualChatScreen = () => {
         </View>
       </View>
 
-      {messages.length === 0 && (
+      {messages.length === 0 && !loading && (
         <View style={styles.introMessageContainer}>
           <Text style={styles.introMessageText}>
-            🔥 Le match est fait. Maintenant, place à l’échange sportif !
+            🔥 Le match est fait. Maintenant, place à l'échange sportif !
           </Text>
         </View>
       )}
@@ -211,11 +389,18 @@ const IndividualChatScreen = () => {
       <FlatList
         ref={flatListRef}
         data={messages}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         renderItem={renderMessage}
         style={styles.messagesList}
         contentContainerStyle={styles.messagesContainer}
         showsVerticalScrollIndicator={false}
+        // ✅ OPTIMISATIONS PERFORMANCE FLATLIST
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        windowSize={21}
+        getItemLayout={getItemLayout}
+        initialNumToRender={20}
       />
 
       <KeyboardAvoidingView
@@ -252,7 +437,9 @@ const IndividualChatScreen = () => {
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
-};
+});
+
+IndividualChatScreen.displayName = "IndividualChatScreen";
 
 export default IndividualChatScreen;
 
@@ -260,6 +447,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
+  },
+  // ✅ NOUVEAU: Style minimaliste
+  minimalistContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: COLORS.lightGray,
+  },
+  minimalistText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: COLORS.midnight,
+    textAlign: "center",
+    paddingHorizontal: 20,
   },
   header: {
     flexDirection: "row",

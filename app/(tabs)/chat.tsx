@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -26,7 +26,7 @@ import Animated, {
 
 const { width } = Dimensions.get("window");
 
-// Flintch Colors - Version épurée
+// Flintch Colors
 const COLORS = {
   primary: "#0E4A7B",
   accent: "#FF5135",
@@ -39,7 +39,14 @@ const COLORS = {
   divider: "#F0F0F0",
 };
 
-// Interface pour les partenaires depuis l'API
+// Interfaces
+interface Message {
+  id: number;
+  content: string;
+  sender_id: number;
+  created_at: string;
+}
+
 interface ApiPartner {
   id: number;
   user: {
@@ -49,9 +56,10 @@ interface ApiPartner {
     photos: string[];
   };
   matched_at: string;
+  last_message?: Message;
+  unread_count?: number;
 }
 
-// Interface pour l'affichage
 interface ChatPreview {
   id: string;
   matchId: number;
@@ -63,266 +71,92 @@ interface ChatPreview {
   isOnline?: boolean;
   userId: number;
   isNewPartner: boolean;
+  isLastMessageFromMe: boolean;
 }
 
-// Interface pour les slots vides
 interface EmptySlot {
   id: string;
   isEmpty: true;
 }
 
-// Type union pour les éléments de la liste
 type PartnerListItem = ChatPreview | EmptySlot;
 
-const ChatScreen = () => {
-  const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [partners, setPartners] = useState<ChatPreview[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [viewedPartners, setViewedPartners] = useState<Set<number>>(new Set());
+// Composant simple pour les nouveaux partenaires
+function AnimatedPartnerItem({
+  item,
+  index,
+  viewedPartners,
+  onPress,
+}: {
+  item: ChatPreview;
+  index: number;
+  viewedPartners: Set<number>;
+  onPress: (item: ChatPreview) => void;
+}) {
+  const translateX = useSharedValue(100);
+  const opacity = useSharedValue(0);
 
-  useEffect(() => {
-    loadPartners();
-    loadViewedPartners();
+  const isNewPartner = !viewedPartners.has(item.userId);
+
+  React.useEffect(() => {
+    const delay = index * 200;
+
+    setTimeout(() => {
+      translateX.value = withSpring(0, {
+        damping: 20,
+        stiffness: 100,
+        mass: 0.8,
+      });
+
+      opacity.value = withTiming(1, {
+        duration: 600,
+      });
+    }, delay);
   }, []);
 
-  const loadViewedPartners = async () => {
-    try {
-      const viewed = await AsyncStorage.getItem("viewedPartners");
-      if (viewed) {
-        setViewedPartners(new Set(JSON.parse(viewed)));
-      }
-    } catch (error) {
-      console.error("Erreur chargement partenaires vus:", error);
-    }
-  };
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    opacity: opacity.value,
+  }));
 
-  const markPartnerAsViewed = async (userId: number) => {
-    try {
-      const newViewedPartners = new Set(viewedPartners);
-      newViewedPartners.add(userId);
-      setViewedPartners(newViewedPartners);
+  return (
+    <Animated.View style={animatedStyle}>
+      <TouchableOpacity
+        style={styles.newPartnerItem}
+        activeOpacity={0.8}
+        onPress={() => onPress(item)}
+      >
+        <View style={styles.newPartnerImageContainer}>
+          <Image source={{ uri: item.avatar }} style={styles.newPartnerImage} />
+          <View style={styles.newPartnerGlow} />
 
-      // Sauvegarder dans AsyncStorage
-      await AsyncStorage.setItem(
-        "viewedPartners",
-        JSON.stringify(Array.from(newViewedPartners))
-      );
-    } catch (error) {
-      console.error("Erreur sauvegarde partenaire vu:", error);
-    }
-  };
-
-  const loadPartners = async () => {
-    try {
-      setLoading(true);
-      const token = await AsyncStorage.getItem("token");
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      const response = await axios.get("http://localhost:8000/api/matches", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const apiPartners: ApiPartner[] = response.data;
-
-      // Transformer les données API en format d'affichage
-      const chatPreviews: ChatPreview[] = apiPartners.map((partner) => {
-        const timeAgo = getTimeAgo(partner.matched_at);
-        const hoursSincePartner = getHoursSincePartner(partner.matched_at);
-
-        return {
-          id: partner.id.toString(),
-          matchId: partner.id,
-          userId: partner.user.id,
-          name: partner.user.name,
-          lastMessage: "Vous vous êtes connectés ! Dites bonjour 👋",
-          timestamp: timeAgo,
-          avatar: partner.user.photos[0] || "https://placekitten.com/100/100",
-          unreadCount: 1,
-          isOnline: Math.random() > 0.5,
-          isNewPartner: hoursSincePartner < 24, // Nouveau partenaire si < 24h
-        };
-      });
-
-      setPartners(chatPreviews);
-    } catch (error) {
-      console.error("Erreur chargement partenaires:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadPartners();
-    setRefreshing(false);
-  };
-
-  // Fonction pour calculer les heures écoulées
-  const getHoursSincePartner = (dateString: string): number => {
-    const now = new Date();
-    const date = new Date(dateString);
-    return Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
-  };
-
-  // Fonction pour calculer le temps écoulé
-  const getTimeAgo = (dateString: string): string => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diffInSeconds < 60) return "À l'instant";
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
-    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}j`;
-
-    return date.toLocaleDateString("fr-FR", {
-      day: "numeric",
-      month: "short",
-    });
-  };
-
-  // Séparer nouveaux partenaires et conversations
-  const newPartners = partners.filter((partner) => partner.isNewPartner);
-  const conversations = partners.filter((partner) => !partner.isNewPartner);
-  const filteredConversations = conversations.filter((chat) =>
-    chat.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Créer des profils vides pour l'effet Tinder (toujours 4 au total)
-  const emptySlots: EmptySlot[] = Array.from(
-    { length: Math.max(0, 4 - newPartners.length) },
-    (_, index) => ({
-      id: `empty-${index}`,
-      isEmpty: true,
-    })
-  );
-
-  // Combiner vrais profils + profils vides
-  const displayPartners: PartnerListItem[] = [...newPartners, ...emptySlots];
-
-  // Composant animé pour les nouveaux partenaires
-  const AnimatedPartnerItem = ({
-    item,
-    index,
-  }: {
-    item: ChatPreview;
-    index: number;
-  }) => {
-    const translateX = useSharedValue(100);
-    const opacity = useSharedValue(0);
-
-    // Vérifier si ce partenaire a été vu
-    const isNewPartner = !viewedPartners.has(item.userId);
-
-    React.useEffect(() => {
-      const delay = index * 200;
-
-      setTimeout(() => {
-        translateX.value = withSpring(0, {
-          damping: 20,
-          stiffness: 100,
-          mass: 0.8,
-        });
-
-        opacity.value = withTiming(1, {
-          duration: 600,
-        });
-      }, delay);
-    }, []);
-
-    const animatedStyle = useAnimatedStyle(() => ({
-      transform: [{ translateX: translateX.value }],
-      opacity: opacity.value,
-    }));
-
-    return (
-      <Animated.View style={animatedStyle}>
-        <TouchableOpacity
-          style={styles.newPartnerItem}
-          activeOpacity={0.8}
-          onPress={() => {
-            // Marquer comme vu AVANT la navigation
-            markPartnerAsViewed(item.userId);
-
-            router.push({
-              pathname: "/chat/[id]",
-              params: {
-                id: item.userId.toString(),
-                name: item.name,
-                avatar: item.avatar,
-                isOnline: item.isOnline ? "true" : "false",
-              },
-            });
-          }}
-        >
-          <View style={styles.newPartnerImageContainer}>
-            <Image
-              source={{ uri: item.avatar }}
-              style={styles.newPartnerImage}
-            />
-            <View style={styles.newPartnerGlow} />
-
-            {/* Badge NEW */}
-            {isNewPartner && (
-              <View style={styles.newBadge}>
-                <Text style={styles.newBadgeText}>NEW</Text>
-              </View>
-            )}
-          </View>
-          <Text style={styles.newPartnerName} numberOfLines={1}>
-            {item.name}
-          </Text>
-        </TouchableOpacity>
-      </Animated.View>
-    );
-  };
-
-  // Render item pour le carousel des nouveaux partenaires
-  const renderNewPartnerItem = ({
-    item,
-    index,
-  }: {
-    item: PartnerListItem;
-    index: number;
-  }) => {
-    // Vérifier si c'est un slot vide
-    if ("isEmpty" in item) {
-      // Rendu pour les slots vides
-      return (
-        <View style={styles.emptyPartnerItem}>
-          <View style={styles.emptyPartnerImageContainer}>
-            <View style={styles.emptyPartnerImage} />
-          </View>
-          <Text style={styles.newPartnerName}></Text>
+          {isNewPartner && (
+            <View style={styles.newBadge}>
+              <Text style={styles.newBadgeText}>NEW</Text>
+            </View>
+          )}
         </View>
-      );
-    }
+        <Text style={styles.newPartnerName} numberOfLines={1}>
+          {item.name}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
-    // Rendu pour les vrais partenaires
-    return <AnimatedPartnerItem item={item} index={index} />;
-  };
-
-  // Render item pour les conversations
-  const renderChatItem = ({ item }: { item: ChatPreview }) => (
+// Composant chat item simple
+function ChatItem({
+  item,
+  onPress,
+}: {
+  item: ChatPreview;
+  onPress: (item: ChatPreview) => void;
+}) {
+  return (
     <TouchableOpacity
       style={styles.chatItem}
       activeOpacity={0.95}
-      onPress={() => {
-        router.push({
-          pathname: "/chat/[id]",
-          params: {
-            id: item.userId.toString(),
-            name: item.name,
-            avatar: item.avatar,
-            isOnline: item.isOnline ? "true" : "false",
-          },
-        });
-      }}
+      onPress={() => onPress(item)}
     >
       <View style={styles.avatarContainer}>
         <Image source={{ uri: item.avatar }} style={styles.avatar} />
@@ -338,7 +172,9 @@ const ChatScreen = () => {
         <Text
           style={[
             styles.lastMessage,
-            item.unreadCount ? styles.unreadMessage : {},
+            !item.isLastMessageFromMe && item.unreadCount
+              ? styles.unreadMessage
+              : {},
           ]}
           numberOfLines={1}
         >
@@ -352,6 +188,285 @@ const ChatScreen = () => {
         </View>
       )}
     </TouchableOpacity>
+  );
+}
+
+// Composant principal
+export default function ChatScreen() {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [partners, setPartners] = useState<ChatPreview[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [viewedPartners, setViewedPartners] = useState<Set<number>>(new Set());
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+
+  // Helper function
+  const getTimeAgo = useCallback((dateString: string): string => {
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffInSeconds < 60) return "À l'instant";
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}j`;
+
+    return date.toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "short",
+    });
+  }, []);
+
+  // Load current user
+  const loadCurrentUser = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (token) {
+        const response = await axios.get("http://localhost:8000/api/user", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setCurrentUserId(response.data.id);
+      }
+    } catch (error) {
+      console.error("Erreur chargement utilisateur:", error);
+    }
+  }, []);
+
+  // Load viewed partners
+  const loadViewedPartners = useCallback(async () => {
+    try {
+      const viewed = await AsyncStorage.getItem("viewedPartners");
+      if (viewed) {
+        setViewedPartners(new Set(JSON.parse(viewed)));
+      }
+    } catch (error) {
+      console.error("Erreur chargement partenaires vus:", error);
+    }
+  }, []);
+
+  // Load partners
+  const loadPartners = useCallback(async () => {
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem("token");
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      const response = await axios.get(
+        "http://localhost:8000/api/matches?include_messages=true",
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      const apiPartners: ApiPartner[] = response.data;
+
+      const chatPreviews: ChatPreview[] = apiPartners.map((partner) => {
+        const timeAgo = getTimeAgo(partner.matched_at);
+
+        let lastMessage = "Vous vous êtes connectés ! Dites bonjour 👋";
+        let timestamp = timeAgo;
+        let isLastMessageFromMe = false;
+        let unreadCount = 0;
+        let isNewPartner = false;
+
+        if (partner.last_message) {
+          lastMessage = partner.last_message.content;
+          timestamp = getTimeAgo(partner.last_message.created_at);
+          isLastMessageFromMe =
+            partner.last_message.sender_id === currentUserId;
+
+          if (!isLastMessageFromMe) {
+            unreadCount = partner.unread_count || 0;
+          }
+          isNewPartner = false;
+        } else {
+          isNewPartner = true;
+          unreadCount = 1;
+        }
+
+        return {
+          id: partner.id.toString(),
+          matchId: partner.id,
+          userId: partner.user.id,
+          name: partner.user.name,
+          lastMessage,
+          timestamp,
+          avatar:
+            (partner.user.photos && partner.user.photos[0]) ||
+            "https://placekitten.com/100/100",
+          unreadCount: unreadCount > 0 ? unreadCount : undefined,
+          isOnline: Math.random() > 0.5,
+          isNewPartner,
+          isLastMessageFromMe,
+        };
+      });
+
+      setPartners(chatPreviews);
+    } catch (error) {
+      console.error("Erreur chargement partenaires:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUserId, getTimeAgo]);
+
+  // Mark partner as viewed
+  const markPartnerAsViewed = useCallback(
+    async (userId: number) => {
+      try {
+        const newViewedPartners = new Set(viewedPartners);
+        newViewedPartners.add(userId);
+        setViewedPartners(newViewedPartners);
+
+        await AsyncStorage.setItem(
+          "viewedPartners",
+          JSON.stringify(Array.from(newViewedPartners))
+        );
+      } catch (error) {
+        console.error("Erreur sauvegarde partenaire vu:", error);
+      }
+    },
+    [viewedPartners]
+  );
+
+  // Mark conversation as read
+  const markConversationAsRead = useCallback(async (matchId: number) => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+
+      setPartners((prevPartners) =>
+        prevPartners.map((partner) =>
+          partner.matchId === matchId ? { ...partner, unreadCount: 0 } : partner
+        )
+      );
+
+      await axios.post(
+        `http://localhost:8000/api/matches/${matchId}/mark-read`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+    } catch (error) {
+      console.error("Erreur marquage conversation lue:", error);
+    }
+  }, []);
+
+  // Refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadPartners();
+    setRefreshing(false);
+  }, [loadPartners]);
+
+  // Navigation handlers
+  const handlePartnerPress = useCallback(
+    (item: ChatPreview) => {
+      markPartnerAsViewed(item.userId);
+      markConversationAsRead(item.matchId);
+
+      router.push({
+        pathname: "/chat/[id]",
+        params: {
+          id: item.userId.toString(),
+          name: item.name,
+          avatar: item.avatar,
+          isOnline: item.isOnline ? "true" : "false",
+        },
+      });
+    },
+    [router, markPartnerAsViewed, markConversationAsRead]
+  );
+
+  const handleChatPress = useCallback(
+    (item: ChatPreview) => {
+      markConversationAsRead(item.matchId);
+
+      router.push({
+        pathname: "/chat/[id]",
+        params: {
+          id: item.userId.toString(),
+          name: item.name,
+          avatar: item.avatar,
+          isOnline: item.isOnline ? "true" : "false",
+        },
+      });
+    },
+    [router, markConversationAsRead]
+  );
+
+  // Initial load
+  useEffect(() => {
+    loadCurrentUser();
+    loadViewedPartners();
+    loadPartners();
+  }, [loadCurrentUser, loadViewedPartners, loadPartners]);
+
+  // Computed values
+  const { newPartners, conversations, filteredConversations, displayPartners } =
+    useMemo(() => {
+      const newPartners = partners.filter((partner) => partner.isNewPartner);
+      const conversations = partners.filter((partner) => !partner.isNewPartner);
+      const filteredConversations = conversations.filter((chat) =>
+        chat.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+
+      const emptySlots: EmptySlot[] = Array.from(
+        { length: Math.max(0, 4 - newPartners.length) },
+        (_, index) => ({
+          id: `empty-${index}`,
+          isEmpty: true,
+        })
+      );
+
+      const displayPartners: PartnerListItem[] = [
+        ...newPartners,
+        ...emptySlots,
+      ];
+
+      return {
+        newPartners,
+        conversations,
+        filteredConversations,
+        displayPartners,
+      };
+    }, [partners, searchQuery]);
+
+  // Render functions
+  const renderNewPartnerItem = ({
+    item,
+    index,
+  }: {
+    item: PartnerListItem;
+    index: number;
+  }) => {
+    if ("isEmpty" in item) {
+      return (
+        <View style={styles.emptyPartnerItem}>
+          <View style={styles.emptyPartnerImageContainer}>
+            <View style={styles.emptyPartnerImage} />
+          </View>
+          <Text style={styles.newPartnerName}></Text>
+        </View>
+      );
+    }
+
+    return (
+      <AnimatedPartnerItem
+        item={item}
+        index={index}
+        viewedPartners={viewedPartners}
+        onPress={handlePartnerPress}
+      />
+    );
+  };
+
+  const renderChatItem = ({ item }: { item: ChatPreview }) => (
+    <ChatItem item={item} onPress={handleChatPress} />
   );
 
   if (loading) {
@@ -372,7 +487,7 @@ const ChatScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
-      {/* Header Tinder style */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.logoContainer}>
@@ -410,13 +525,12 @@ const ChatScreen = () => {
         }
         ListHeaderComponent={
           <>
-            {/* Section Nouveaux Partenaires */}
             {newPartners.length > 0 && (
               <View style={styles.newPartnersSection}>
                 <Text style={styles.sectionTitle}>
                   Nouveaux partenaires d'entraînement
                 </Text>
-                <FlatList<PartnerListItem>
+                <FlatList
                   data={displayPartners}
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -429,12 +543,10 @@ const ChatScreen = () => {
               </View>
             )}
 
-            {/* Section Messages */}
             {conversations.length > 0 && (
               <Text style={styles.sectionTitle}>Messages</Text>
             )}
 
-            {/* Bouton de redirection seulement si aucun partenaire */}
             {newPartners.length === 0 && partners.length > 0 && (
               <View style={styles.emptySection}>
                 <Text style={styles.emptySectionTitle}>
@@ -453,7 +565,6 @@ const ChatScreen = () => {
               </View>
             )}
 
-            {/* Message sans bouton si aucun message mais il y a des partenaires */}
             {conversations.length === 0 && newPartners.length > 0 && (
               <View style={styles.emptySection}>
                 <Text style={styles.emptySectionTitle}>
@@ -503,9 +614,7 @@ const ChatScreen = () => {
       />
     </SafeAreaView>
   );
-};
-
-export default ChatScreen;
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -583,7 +692,7 @@ const styles = StyleSheet.create({
   },
   newPartnersList: {
     paddingHorizontal: 24,
-    paddingTop: 16, // Espace en haut pour le glow
+    paddingTop: 16,
     paddingBottom: 8,
   },
   newPartnerItem: {

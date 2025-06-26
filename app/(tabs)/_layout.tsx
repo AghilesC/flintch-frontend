@@ -1,14 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Tabs } from "expo-router";
-import React from "react";
-import { Platform, StyleSheet, TouchableOpacity } from "react-native";
+import React, { useMemo } from "react";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSequence,
   withSpring,
-  withTiming,
 } from "react-native-reanimated";
 
 import {
@@ -22,6 +27,7 @@ import {
   useFonts as usePoppins,
 } from "@expo-google-fonts/poppins";
 import AppLoading from "expo-app-loading";
+import { useApp } from "../contexts/AppContext";
 
 // Flintch Colors
 const COLORS = {
@@ -33,76 +39,107 @@ const COLORS = {
   background: "#F8F9FA",
 };
 
-// Enhanced Haptic Tab avec animations premium (version simplifiée)
-const PremiumHapticTab = ({
-  children,
-  onPress,
-  accessibilityState,
-  ...rest
-}: any) => {
-  const scale = useSharedValue(1);
-  const rotation = useSharedValue(0);
-  const isActive = accessibilityState?.selected;
+// ✅ COMPOSANT BADGE SIMPLIFIÉ
+const NotificationBadge = React.memo(({ count }: { count: number }) => {
+  const scale = useSharedValue(count > 0 ? 1 : 0);
 
   React.useEffect(() => {
-    if (isActive) {
-      // Animation quand l'onglet devient actif
-      scale.value = withSpring(1.15, { damping: 8, stiffness: 200 });
-      rotation.value = withSequence(
-        withTiming(5, { duration: 100 }),
-        withTiming(-5, { duration: 100 }),
-        withTiming(0, { duration: 100 })
+    if (count > 0) {
+      scale.value = withSequence(
+        withSpring(1.3, { damping: 6 }),
+        withSpring(1, { damping: 8 })
       );
     } else {
-      // Animation quand l'onglet devient inactif
-      scale.value = withSpring(1, { damping: 12, stiffness: 300 });
-      rotation.value = withTiming(0, { duration: 150 });
+      scale.value = withSpring(0, { damping: 8 });
     }
-  }, [isActive]);
+  }, [count]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  if (count <= 0) return null;
+
+  return (
+    <Animated.View style={[styles.badge, animatedStyle]}>
+      <Text style={styles.badgeText}>
+        {count > 99 ? "99+" : count.toString()}
+      </Text>
+    </Animated.View>
+  );
+});
+
+// ✅ COMPOSANT ICÔNE SIMPLIFIÉ
+const IconWithBadge = React.memo(
+  ({
+    name,
+    outlineName,
+    size,
+    color,
+    focused,
+    badgeCount = 0,
+  }: {
+    name: keyof typeof Ionicons.glyphMap;
+    outlineName: keyof typeof Ionicons.glyphMap;
+    size: number;
+    color: string;
+    focused: boolean;
+    badgeCount?: number;
+  }) => {
+    return (
+      <View style={styles.iconContainer}>
+        <Ionicons
+          name={focused ? name : outlineName}
+          size={focused ? size + 2 : size}
+          color={color}
+        />
+        <NotificationBadge count={badgeCount} />
+      </View>
+    );
+  }
+);
+
+// ✅ TAB BUTTON ULTRA SIMPLIFIÉ (sans animations complexes)
+function SimpleTabButton(props: any) {
+  const { children, onPress, accessibilityState } = props;
+  const isActive = accessibilityState?.selected;
 
   const handlePress = () => {
-    // Haptic feedback seulement si on change de tab
+    // Haptic simple
     if (!isActive && Platform.OS === "ios") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
 
-    // Animation de tap seulement
-    scale.value = withSequence(
-      withTiming(0.9, { duration: 80 }),
-      withSpring(isActive ? 1.15 : 1, { damping: 8, stiffness: 200 })
-    );
-
-    // Laisse Expo Router gérer la navigation
     if (onPress) {
       onPress();
     }
   };
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }, { rotate: `${rotation.value}deg` }],
-  }));
-
   return (
     <TouchableOpacity
       onPress={handlePress}
-      activeOpacity={0.8}
-      style={styles.tabButton}
-      {...rest}
+      activeOpacity={0.7}
+      style={[styles.tabButton, isActive && styles.tabButtonActive]}
     >
-      <Animated.View style={[styles.tabIconContainer, animatedStyle]}>
-        {children}
-      </Animated.View>
+      <View style={styles.tabIconContainer}>{children}</View>
     </TouchableOpacity>
   );
-};
-
-// Custom Tab Bar Background avec style premium
-const PremiumTabBarBackground = () => {
-  return <Animated.View style={styles.tabBarBackground} />;
-};
+}
 
 export default function TabLayout() {
-  // Charge toutes les polices
+  // ✅ Context optimisé
+  const { state } = useApp();
+
+  // ✅ Mémoise les notifications
+  const notifications = useMemo(
+    () => ({
+      chat: state.notifications.chat,
+      matches: state.notifications.matches,
+    }),
+    [state.notifications.chat, state.notifications.matches]
+  );
+
+  // Polices
   const [poppinsLoaded] = usePoppins({
     Poppins_700Bold,
     Poppins_600SemiBold,
@@ -112,46 +149,47 @@ export default function TabLayout() {
     Inter_600SemiBold,
   });
 
-  // Bloque le rendu tant que les polices ne sont pas chargées
+  // ✅ Options simplifiées et sûres
+  const screenOptions = useMemo(
+    () => ({
+      headerShown: false,
+      tabBarButton: SimpleTabButton, // ✅ Fonction simple
+      tabBarShowLabel: false,
+      tabBarStyle: {
+        backgroundColor: COLORS.white,
+        borderTopWidth: 1,
+        borderTopColor: "rgba(142, 155, 174, 0.2)",
+        height: Platform.OS === "ios" ? 85 : 70,
+        paddingTop: 10,
+        paddingBottom: Platform.OS === "ios" ? 25 : 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 8,
+      },
+      tabBarActiveTintColor: COLORS.accent,
+      tabBarInactiveTintColor: COLORS.inactive,
+    }),
+    []
+  );
+
+  // Bloque si polices pas chargées
   if (!poppinsLoaded || !interLoaded) return <AppLoading />;
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarButton: PremiumHapticTab,
-        tabBarBackground: PremiumTabBarBackground,
-        tabBarShowLabel: false, // Masque tous les labels
-        tabBarStyle: {
-          ...Platform.select({
-            ios: {
-              position: "absolute",
-            },
-            default: {},
-          }),
-          backgroundColor: "transparent",
-          borderTopWidth: 0,
-          elevation: 0,
-          shadowOpacity: 0,
-          height: Platform.OS === "ios" ? 75 : 60, // Réduit la hauteur sans les labels
-        },
-        tabBarActiveTintColor: COLORS.accent,
-        tabBarInactiveTintColor: COLORS.inactive,
-        tabBarIconStyle: {
-          marginTop: 8, // Plus de marge pour centrer parfaitement
-          marginBottom: 8,
-        },
-      }}
-    >
+    <Tabs screenOptions={screenOptions}>
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "home" : "home-outline"}
-              size={focused ? 26 : 24}
+            <IconWithBadge
+              name="home"
+              outlineName="home-outline"
+              size={24}
               color={color}
+              focused={focused}
             />
           ),
         }}
@@ -161,10 +199,12 @@ export default function TabLayout() {
         options={{
           title: "Explore",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "compass" : "compass-outline"}
-              size={focused ? 26 : 24}
+            <IconWithBadge
+              name="compass"
+              outlineName="compass-outline"
+              size={24}
               color={color}
+              focused={focused}
             />
           ),
         }}
@@ -174,10 +214,13 @@ export default function TabLayout() {
         options={{
           title: "Matches",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "heart" : "heart-outline"}
-              size={focused ? 26 : 24}
+            <IconWithBadge
+              name="heart"
+              outlineName="heart-outline"
+              size={24}
               color={color}
+              focused={focused}
+              badgeCount={notifications.matches}
             />
           ),
         }}
@@ -187,10 +230,13 @@ export default function TabLayout() {
         options={{
           title: "Chat",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "chatbubbles" : "chatbubbles-outline"}
-              size={focused ? 26 : 24}
+            <IconWithBadge
+              name="chatbubbles"
+              outlineName="chatbubbles-outline"
+              size={24}
               color={color}
+              focused={focused}
+              badgeCount={notifications.chat}
             />
           ),
         }}
@@ -200,10 +246,12 @@ export default function TabLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "person" : "person-outline"}
-              size={focused ? 26 : 24}
+            <IconWithBadge
+              name="person"
+              outlineName="person-outline"
+              size={24}
               color={color}
+              focused={focused}
             />
           ),
         }}
@@ -217,26 +265,45 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 12, // Plus de padding pour centrer
+    paddingVertical: 8,
+  },
+  tabButtonActive: {
+    // Style optionnel pour état actif
   },
   tabIconContainer: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 36, // Hauteur minimum pour le centrage
+    minHeight: 32,
   },
-  tabBarBackground: {
+  iconContainer: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badge: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: COLORS.white,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(142, 155, 174, 0.2)",
+    top: -8,
+    right: -12,
+    backgroundColor: COLORS.accent,
+    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    borderColor: COLORS.white,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  badgeText: {
+    color: COLORS.white,
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 14,
+    textAlign: "center",
   },
 });
