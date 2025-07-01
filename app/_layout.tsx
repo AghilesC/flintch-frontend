@@ -54,23 +54,14 @@ export default function RootLayout() {
     <AppProvider>
       <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
         <>
-          <Stack>
-            <Stack.Screen name="splash" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="(auth)/login"
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="(auth)/register"
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="complete-profile"
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
-            <Stack.Screen name="+not-found" />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="splash" />
+            <Stack.Screen name="(auth)/login" />
+            <Stack.Screen name="(auth)/register" />
+            <Stack.Screen name="(auth)/complete-profile" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="chat/[id]" />
+            <Stack.Screen name="+not-found" options={{ headerShown: true }} />
           </Stack>
           <StatusBar style="auto" />
           <Toast />

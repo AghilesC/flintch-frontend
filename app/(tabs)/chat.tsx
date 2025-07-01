@@ -491,7 +491,7 @@ export default function ChatScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.logoContainer}>
-            <Text style={styles.logoText}>flintch</Text>
+            <Text style={styles.logoText}>Takt</Text>
           </View>
         </View>
         <TouchableOpacity style={styles.headerRight}>

@@ -468,7 +468,7 @@ const ProfileScreen = React.memo(() => {
     );
   }, [user?.sports]);
 
-  // ✅ RENDER OBJECTIFS CORRIGÉ
+  // ✅ REMPLACEZ votre renderObjectifs existant par celui-ci:
   const renderObjectifs = useMemo(() => {
     console.log("🎯 DEBUG - Raw user.goals:", user?.goals);
     console.log("🎯 DEBUG - Type of user.goals:", typeof user?.goals);
@@ -494,6 +494,21 @@ const ProfileScreen = React.memo(() => {
       </View>
     );
   }, [user?.goals]);
+
+  // ✅ AJOUTEZ ce useEffect pour le debugging (temporaire):
+  useEffect(() => {
+    if (user) {
+      console.log("=== 🔍 COMPLETE USER DEBUG ===");
+      console.log("Full user object:", user);
+      console.log("Sports raw:", user.sports);
+      console.log("Goals raw:", user.goals);
+      console.log("Sports type:", typeof user.sports);
+      console.log("Goals type:", typeof user.goals);
+      console.log("Sports isArray:", Array.isArray(user.sports));
+      console.log("Goals isArray:", Array.isArray(user.goals));
+      console.log("===============================");
+    }
+  }, [user]);
 
   // ✅ STYLES ANIMÉS MÉMOISÉS
   const heartbeatStyle = useAnimatedStyle(() => ({

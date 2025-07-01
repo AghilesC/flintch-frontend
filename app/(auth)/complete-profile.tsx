@@ -1,18 +1,21 @@
-import DisponibiliteGrille from "@/components/DisponibiliteGrille";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 import axios from "axios";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Dimensions,
-  FlatList,
-  Modal,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -20,972 +23,970 @@ import {
   View,
 } from "react-native";
 import Animated, {
-  Easing,
+  FadeInUp,
+  interpolate,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withSequence,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
 import Toast from "react-native-toast-message";
 
+// ✅ IMPORTS DES COMPOSANTS
+import EditProfileTab from "./EditProfileTab";
+import PreviewProfileTab from "./PreviewProfileTab";
+
+// ✅ IMPORTS OPTIMISÉS
+import CacheManager from "../../utils/CacheManager";
+import { useApp } from "../contexts/AppContext";
+
 const { width } = Dimensions.get("window");
 
-// Flintch Branding Colors
+// ✅ INTERFACES TYPESCRIPT
+interface BeautifulHeaderProps {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  onBack: () => void;
+}
+
+interface SuccessAnimationProps {
+  visible: boolean;
+  isFocused: boolean;
+  router: any;
+}
+
+// ✨ COULEURS ULTRA MODERNES
 const COLORS = {
-  primary: "#0E4A7B",
-  accent: "#FF5135",
-  gradientStart: "#0E4A7B",
-  gradientEnd: "#195A96",
-  skyBlue: "#4CCAF1",
-  midnight: "#092C44",
+  primary: "#FF5135",
+  primaryLight: "#FF7A5C",
+  primaryDark: "#E63E1F",
+  gradientStart: "#FF5135",
+  gradientEnd: "#FF8A6B",
   white: "#FFFFFF",
   lightGray: "#F8F9FA",
-  cardShadow: "rgba(9, 44, 68, 0.15)",
-  overlay: "rgba(0, 0, 0, 0.4)",
+  softGray: "#F1F3F4",
+  overlay: "rgba(255, 81, 53, 0.1)",
+  overlayDark: "rgba(0, 0, 0, 0.4)",
   success: "#4CAF50",
-  error: "#FF5135",
   textSecondary: "#6C7B7F",
-  gradientCard1: "#FFFFFF",
-  gradientCard2: "#F0F7FF",
+  shadow: "rgba(255, 81, 53, 0.25)",
+  glass: "rgba(255, 255, 255, 0.1)",
 };
 
-// ---- Animated Card Component ---- //
-interface AnimatedCardProps {
-  children: React.ReactNode;
-  delay?: number;
-  style?: any;
-}
+// ✨ HEADER COMPONENT ULTRA MODERNE
+const BeautifulHeader = React.memo<BeautifulHeaderProps>(
+  ({ activeTab, onTabChange, onBack }) => {
+    const tabIndicatorPosition = useSharedValue(activeTab === "edit" ? 0 : 1);
+    const headerOpacity = useSharedValue(1);
 
-const AnimatedCard: React.FC<AnimatedCardProps> = ({
-  children,
-  delay = 0,
-  style,
-}) => {
-  const opacity = useSharedValue(0);
-  const translateY = useSharedValue(30);
-  const scale = useSharedValue(0.95);
+    // Animation de l'indicateur
+    const tabIndicatorStyle = useAnimatedStyle(() => ({
+      transform: [
+        {
+          translateX: interpolate(
+            tabIndicatorPosition.value,
+            [0, 1],
+            [0, (width - 120) / 2]
+          ),
+        },
+      ],
+    }));
 
-  useEffect(() => {
-    // Reveal animation only
-    opacity.value = withDelay(
-      delay,
-      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) })
-    );
-    translateY.value = withDelay(
-      delay,
-      withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) })
-    );
-    scale.value = withDelay(
-      delay,
-      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) })
-    );
-  }, [delay]);
+    // Animation du header pour le mode sombre
+    const headerStyle = useAnimatedStyle(() => ({
+      opacity: headerOpacity.value,
+    }));
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ translateY: translateY.value }, { scale: scale.value }],
-  }));
+    const handleTabPress = useCallback(
+      (tab: string) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-  return (
-    <Animated.View style={[animatedStyle, style]}>
-      <LinearGradient
-        colors={[COLORS.gradientCard1, COLORS.gradientCard2]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.cardGradient}
-      >
-        {children}
-      </LinearGradient>
-    </Animated.View>
-  );
-};
+        tabIndicatorPosition.value = withSpring(tab === "edit" ? 0 : 1, {
+          damping: 20,
+          stiffness: 300,
+        });
 
-// ---- Animated Sport Chip ---- //
-interface AnimatedSportChipProps {
-  sport: string;
-  selected: boolean;
-  onPress: () => void;
-}
-
-const AnimatedSportChip: React.FC<AnimatedSportChipProps> = ({
-  sport,
-  selected,
-  onPress,
-}) => {
-  const scale = useSharedValue(1);
-  const rotation = useSharedValue(0);
-
-  const handlePress = () => {
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Bouncy animation
-    scale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withSpring(1.1, { damping: 6, stiffness: 200 }),
-      withSpring(1, { damping: 8, stiffness: 200 })
+        onTabChange(tab);
+      },
+      [onTabChange]
     );
 
-    // Subtle rotation on selection
-    if (!selected) {
-      rotation.value = withSequence(
-        withTiming(5, { duration: 150 }),
-        withTiming(-5, { duration: 150 }),
-        withTiming(0, { duration: 150 })
-      );
-    }
+    // Met à jour la position quand activeTab change
+    useEffect(() => {
+      tabIndicatorPosition.value = withSpring(activeTab === "edit" ? 0 : 1, {
+        damping: 20,
+        stiffness: 300,
+      });
+    }, [activeTab]);
 
-    onPress();
-  };
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }, { rotate: `${rotation.value}deg` }],
-  }));
-
-  return (
-    <Animated.View style={animatedStyle}>
-      <TouchableOpacity
-        style={[styles.sportChip, selected && styles.sportChipSelected]}
-        onPress={handlePress}
-        activeOpacity={0.8}
-      >
-        <Text
-          style={[
-            styles.sportChipText,
-            selected && styles.sportChipTextSelected,
-          ]}
+    return (
+      <Animated.View style={[styles.beautifulHeader, headerStyle]}>
+        {/* Gradient Background - toujours mode clair */}
+        <LinearGradient
+          colors={[COLORS.white, COLORS.softGray]}
+          style={styles.headerGradient}
         >
-          {sport}
-        </Text>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-};
+          {/* Glass Effect Overlay */}
+          <View style={styles.glassOverlay} />
 
-// ---- Success Animation Component ---- //
-const SuccessAnimation: React.FC<{ visible: boolean }> = ({ visible }) => {
-  const scale = useSharedValue(0);
-  const opacity = useSharedValue(0);
-  const rotation = useSharedValue(0);
-
-  useEffect(() => {
-    if (visible) {
-      scale.value = withSequence(
-        withTiming(0, { duration: 0 }),
-        withSpring(1.2, { damping: 6, stiffness: 200 }),
-        withSpring(1, { damping: 8, stiffness: 200 })
-      );
-      opacity.value = withTiming(1, { duration: 300 });
-      rotation.value = withSequence(
-        withTiming(360, { duration: 600, easing: Easing.out(Easing.cubic) }),
-        withTiming(0, { duration: 0 })
-      );
-
-      // Auto hide after animation
-      setTimeout(() => {
-        opacity.value = withTiming(0, { duration: 500 });
-        scale.value = withTiming(0, { duration: 500 });
-      }, 2000);
-    }
-  }, [visible]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    opacity: opacity.value,
-    transform: [{ scale: scale.value }, { rotate: `${rotation.value}deg` }],
-  }));
-
-  if (!visible) return null;
-
-  return (
-    <Animated.View style={[styles.successOverlay, animatedStyle]}>
-      <View style={styles.successContainer}>
-        <Ionicons name="checkmark-circle" size={80} color={COLORS.success} />
-        <Text style={styles.successText}>Profil sauvegardé !</Text>
-      </View>
-    </Animated.View>
-  );
-};
-
-// ---- Enhanced DropdownSelector ---- //
-interface DropdownSelectorProps {
-  label: string;
-  options: string[];
-  selected: string[];
-  onSelect: (value: string[]) => void;
-  multiple?: boolean;
-  icon?: string;
-}
-
-const DropdownSelector: React.FC<DropdownSelectorProps> = ({
-  label,
-  options,
-  selected,
-  onSelect,
-  multiple = false,
-  icon,
-}) => {
-  const [visible, setVisible] = useState(false);
-  const isObjectif = label === "Objectif(s)";
-  const isGenre = label === "Genre";
-  const isNiveau = label === "Niveau sportif";
-  const [tempSelected, setTempSelected] = useState<string[]>(selected);
-
-  const focusScale = useSharedValue(1);
-
-  const openModal = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    focusScale.value = withSequence(
-      withTiming(0.98, { duration: 100 }),
-      withTiming(1, { duration: 100 })
-    );
-    setTempSelected(selected);
-    setVisible(true);
-  };
-
-  const toggleValue = (val: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    if (isGenre || isNiveau) {
-      setTempSelected([val]);
-    } else if (tempSelected.includes(val)) {
-      setTempSelected(tempSelected.filter((v) => v !== val));
-    } else {
-      if (isObjectif && tempSelected.length >= 2) return;
-      setTempSelected([...tempSelected, val]);
-    }
-  };
-
-  const canValidate =
-    isGenre || isNiveau
-      ? tempSelected.length === 1
-      : !isObjectif || tempSelected.length >= 1;
-
-  const handleValidate = () => {
-    if (canValidate) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onSelect(tempSelected);
-      setVisible(false);
-    }
-  };
-
-  const getPlaceholder = () => {
-    if (isGenre) return "Ton genre";
-    if (isNiveau) return "Ton niveau";
-    if (isObjectif) return "Tes objectifs";
-    return `Sélectionner ${label.toLowerCase()}`;
-  };
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: focusScale.value }],
-  }));
-
-  return (
-    <View style={styles.selectorContainer}>
-      <Text style={styles.selectorLabel}>{label}</Text>
-      <Animated.View style={animatedStyle}>
-        <TouchableOpacity
-          style={[
-            styles.selector,
-            selected.length > 0 && styles.selectorSelected,
-          ]}
-          onPress={openModal}
-          activeOpacity={0.7}
-        >
-          <View style={styles.selectorContent}>
-            {icon && (
-              <Ionicons
-                name={icon as any}
-                size={20}
-                color={
-                  selected.length > 0 ? COLORS.primary : COLORS.textSecondary
-                }
-                style={styles.selectorIcon}
-              />
-            )}
-            <Text
-              style={[
-                styles.selectorText,
-                selected.length > 0 && styles.selectorTextSelected,
-              ]}
-              numberOfLines={1}
+          <View style={styles.headerContent}>
+            {/* Back Button avec animation - toujours mode clair */}
+            <TouchableOpacity
+              onPress={onBack}
+              style={styles.modernBackButton}
+              activeOpacity={0.7}
             >
-              {selected.length > 0 ? selected.join(", ") : getPlaceholder()}
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-down"
-            size={20}
-            color={selected.length > 0 ? COLORS.primary : COLORS.textSecondary}
-          />
-        </TouchableOpacity>
-      </Animated.View>
+              <Animated.View style={styles.backButtonInner}>
+                <Ionicons name="arrow-back" size={22} color={COLORS.primary} />
+              </Animated.View>
+            </TouchableOpacity>
 
-      <Modal visible={visible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                Sélectionner {label.toLowerCase()}
-              </Text>
-              <TouchableOpacity
-                onPress={() => setVisible(false)}
-                style={styles.modalCloseButton}
-              >
-                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            </View>
+            {/* Tabs Container Ultra Moderne */}
+            <View style={styles.ultraModernTabsContainer}>
+              <View style={styles.tabsBackground}>
+                {/* Animated Indicator avec gradient */}
+                <Animated.View
+                  style={[styles.modernTabIndicator, tabIndicatorStyle]}
+                >
+                  <LinearGradient
+                    colors={[COLORS.gradientStart, COLORS.primary]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.indicatorGradient}
+                  />
+                </Animated.View>
 
-            <FlatList
-              data={options}
-              keyExtractor={(item) => item}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => {
-                const isSelected = tempSelected.includes(item);
-                const isDisabled =
-                  isGenre || isNiveau
-                    ? false
-                    : isObjectif && !isSelected && tempSelected.length >= 2;
-
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.modalOption,
-                      isSelected && styles.modalOptionSelected,
-                      isDisabled && styles.modalOptionDisabled,
-                    ]}
-                    onPress={() => toggleValue(item)}
-                    disabled={isDisabled}
-                    activeOpacity={0.7}
-                  >
+                {/* Tab Edit */}
+                <TouchableOpacity
+                  style={styles.modernTab}
+                  onPress={() => handleTabPress("edit")}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.tabContentWrapper}>
+                    <Ionicons
+                      name="create-outline"
+                      size={18}
+                      color={
+                        activeTab === "edit"
+                          ? COLORS.white
+                          : COLORS.textSecondary
+                      }
+                      style={styles.tabIcon}
+                    />
                     <Text
                       style={[
-                        styles.modalOptionText,
-                        isSelected && styles.modalOptionTextSelected,
-                        isDisabled && styles.modalOptionTextDisabled,
+                        styles.modernTabText,
+                        activeTab === "edit" && styles.modernTabTextActive,
                       ]}
                     >
-                      {item}
+                      Modifier
                     </Text>
-                    {isSelected && (
-                      <Ionicons
-                        name="checkmark"
-                        size={20}
-                        color={COLORS.accent}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-            />
+                  </View>
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.modalValidateButton,
-                !canValidate && styles.modalValidateButtonDisabled,
-              ]}
-              disabled={!canValidate}
-              onPress={handleValidate}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.modalValidateButtonText,
-                  !canValidate && styles.modalValidateButtonTextDisabled,
-                ]}
-              >
-                Valider
-              </Text>
-            </TouchableOpacity>
+                {/* Tab Preview */}
+                <TouchableOpacity
+                  style={styles.modernTab}
+                  onPress={() => handleTabPress("preview")}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.tabContentWrapper}>
+                    <Ionicons
+                      name="eye-outline"
+                      size={18}
+                      color={
+                        activeTab === "preview"
+                          ? COLORS.white
+                          : COLORS.textSecondary
+                      }
+                      style={styles.tabIcon}
+                    />
+                    <Text
+                      style={[
+                        styles.modernTabText,
+                        activeTab === "preview" && styles.modernTabTextActive,
+                      ]}
+                    >
+                      Aperçu
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Floating Badge */}
+              {activeTab === "preview" && (
+                <Animated.View
+                  style={styles.floatingBadge}
+                  entering={FadeInUp.delay(200).springify()}
+                >
+                  <LinearGradient
+                    colors={[COLORS.primaryLight, COLORS.gradientEnd]}
+                    style={styles.badgeGradient}
+                  >
+                    <Text style={styles.badgeText}>✨ Aperçu Live</Text>
+                  </LinearGradient>
+                </Animated.View>
+              )}
+            </View>
+
+            {/* Right Spacer */}
+            <View style={styles.rightSpacer} />
           </View>
-        </View>
-      </Modal>
-    </View>
-  );
-};
 
-const sportsList = [
-  "🏀 Basket",
-  "⚽ Foot",
-  "🏐 Volley",
-  "🎾 Tennis",
-  "🏓 Ping-pong",
-  "🏋️ Muscu",
-  "🤸 Gym",
-  "🏃 Course",
-  "🚴 Vélo",
-  "🧘 Yoga",
-  "⛹️ CrossFit",
-  "🥊 Boxe",
-  "🥋 Judo",
-  "🧗 Escalade",
-  "🏄 Surf",
-  "🏊 Natation",
-  "🎿 Ski",
-  "🏌️ Golf",
-  "🧍 Stretching",
-  "🚶 Marche",
-];
+          {/* Decorative Bottom Border - toujours orange */}
+          <View style={styles.bottomBorder}>
+            <LinearGradient
+              colors={["transparent", COLORS.primary, "transparent"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.borderGradient}
+            />
+          </View>
+        </LinearGradient>
+      </Animated.View>
+    );
+  }
+);
 
-const niveauxList = [
-  "N'a même pas commencé",
-  "Extrêmement débutant",
-  "Débutant",
-  "Intermédiaire léger",
-  "Intermédiaire confirmé",
-  "Avancé",
-  "Régulièrement",
-  "Athlète confirmé",
-];
+// ✨ SUCCESS ANIMATION COMPONENT
+const SuccessAnimation = React.memo<SuccessAnimationProps>(
+  ({ visible, isFocused, router }) => {
+    const translateY = useSharedValue(500);
+    const opacity = useSharedValue(0);
 
-const objectifsList = [
-  "Perte de poids",
-  "Prise de masse",
-  "Cardio",
-  "Sèche",
-  "Renforcement musculaire",
-  "Souplesse",
-  "Endurance",
-  "Stabilité mentale",
-  "Santé générale",
-  "Préparation compétition",
-  "Remise en forme",
-  "Bien-être",
-  "Se défouler",
-  "Socialiser",
-  "Découverte sportive",
-  "Performance",
-  "Musculation esthétique",
-  "Confiance en soi",
-  "Prendre du plaisir",
-  "Récupération/blessure",
-];
+    useEffect(() => {
+      if (visible && isFocused) {
+        translateY.value = withSpring(0, {
+          damping: 15,
+          stiffness: 150,
+        });
+        opacity.value = withTiming(1, { duration: 300 });
 
-export default function CompleteProfile() {
-  const [gender, setGender] = useState<string>("");
-  const [niveau, setNiveau] = useState<string>("");
+        setTimeout(() => {
+          if (router) {
+            router.replace("/profile");
+          }
+        }, 1000);
+      } else {
+        translateY.value = 500;
+        opacity.value = 0;
+      }
+    }, [visible, isFocused, router]);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+      transform: [{ translateY: translateY.value }],
+      opacity: opacity.value,
+    }));
+
+    if (!visible || !isFocused) return null;
+
+    return (
+      <View style={styles.successOverlay}>
+        <Animated.View style={[styles.successContainer, animatedStyle]}>
+          <View style={styles.checkmarkContainer}>
+            <LinearGradient
+              colors={[COLORS.success, "#81C784"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.checkmarkGradient}
+            >
+              <Ionicons name="checkmark" size={40} color={COLORS.white} />
+            </LinearGradient>
+          </View>
+          <Text style={styles.successText}>Profil mis à jour !</Text>
+        </Animated.View>
+      </View>
+    );
+  }
+);
+
+// ✨ COMPOSANT PRINCIPAL
+const CompleteProfile = React.memo(() => {
+  const { state, fetchUser } = useApp();
+  const { user } = state;
+
+  // ✅ STATE OPTIMISÉ
+  const [gender, setGender] = useState("");
+  const [niveau, setNiveau] = useState("");
   const [objectifs, setObjectifs] = useState<string[]>([]);
   const [sports, setSports] = useState<string[]>([]);
   const [availability, setAvailability] = useState<any>(null);
-  const [location, setLocation] = useState<string>("");
+  const [location, setLocation] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
+
+  // ✨ NOUVEAU: STATE POUR LES ONGLETS
+  const [activeTab, setActiveTab] = useState("edit");
+
+  // ✅ REFS POUR ÉVITER LES APPELS MULTIPLES
+  const isLoadingRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const mountedRef = useRef(true);
+  const saveTimeoutRef = useRef<number | null>(null);
+
+  // ✨ ANIMATION VALUES
+  const buttonScale = useSharedValue(1);
+  const buttonOpacity = useSharedValue(1);
+
   const router = useRouter();
 
-  const parseArray = (val: any) => {
+  // ✅ COMPUTED VALUES
+  const isFormValid = useMemo(() => {
+    return gender && niveau && sports.length > 0 && objectifs.length > 0;
+  }, [gender, niveau, sports.length, objectifs.length]);
+
+  // ✅ FOCUS EFFECT
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      mountedRef.current = true;
+
+      if (!hasLoadedRef.current) {
+        loadUserData();
+      }
+
+      return () => {
+        setIsFocused(false);
+        mountedRef.current = false;
+
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+        }
+      };
+    }, [])
+  );
+
+  // ✅ CLEANUP
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      isLoadingRef.current = false;
+      hasLoadedRef.current = false;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // ✅ FONCTION POUR PARSER LES ARRAYS
+  const parseArray = useCallback((val: any): string[] => {
     if (Array.isArray(val)) return val;
     if (typeof val === "string" && val.startsWith("[")) {
       try {
         const arr = JSON.parse(val);
         if (Array.isArray(arr) && typeof arr[0] === "string") return arr;
         if (Array.isArray(arr) && Array.isArray(arr[0])) return arr[0];
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Error parsing array:", e);
+      }
     }
     return [];
-  };
+  }, []);
 
-  useEffect(() => {
-    (async () => {
-      const token = await AsyncStorage.getItem("token");
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const locationData = await Location.getCurrentPositionAsync({});
-        const coords = `${locationData.coords.latitude},${locationData.coords.longitude}`;
-        setLocation(coords);
+  // ✅ LOAD USER DATA
+  const loadUserData = useCallback(async () => {
+    if (isLoadingRef.current || !mountedRef.current) return;
+
+    try {
+      isLoadingRef.current = true;
+
+      const cachedUser = CacheManager.getMemoryCache("current_user");
+      if (cachedUser && !hasLoadedRef.current) {
+        setUserDataFromCache(cachedUser);
+        hasLoadedRef.current = true;
+        isLoadingRef.current = false;
+        return;
       }
-      try {
-        const response = await axios.get("http://localhost:8000/api/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = response.data;
-        setGender(data.gender || "");
-        setNiveau(data.fitness_level || "");
-        setObjectifs(parseArray(data.goals));
-        setSports(parseArray(data.sports));
-        setAvailability(data.availability || {});
-      } catch (error) {
+
+      const persistentUser = await CacheManager.getPersistentCache(
+        "current_user"
+      );
+      if (persistentUser && !hasLoadedRef.current && mountedRef.current) {
+        setUserDataFromCache(persistentUser);
+        hasLoadedRef.current = true;
+        CacheManager.setMemoryCache(
+          "current_user",
+          persistentUser,
+          10 * 60 * 1000
+        );
+        isLoadingRef.current = false;
+        return;
+      }
+
+      if (!mountedRef.current) {
+        isLoadingRef.current = false;
+        return;
+      }
+
+      const token = await AsyncStorage.getItem("token");
+      if (!token) {
+        isLoadingRef.current = false;
+        return;
+      }
+
+      const response = await axios.get("http://localhost:8000/api/me", {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 10000,
+      });
+
+      if (!mountedRef.current) {
+        isLoadingRef.current = false;
+        return;
+      }
+
+      const data = response.data;
+      setUserDataFromAPI(data);
+      hasLoadedRef.current = true;
+
+      CacheManager.setMemoryCache("current_user", data, 10 * 60 * 1000);
+      await CacheManager.setPersistentCache(
+        "current_user",
+        data,
+        30 * 60 * 1000
+      );
+    } catch (error) {
+      console.error("❌ Error loading user data:", error);
+      if (mountedRef.current) {
         Toast.show({
           type: "error",
           text1: "Erreur",
           text2: "Impossible de charger les données",
         });
       }
-    })();
+    } finally {
+      isLoadingRef.current = false;
+    }
   }, []);
 
-  const toggleSport = (sport: string) => {
-    if (sports.includes(sport)) {
-      if (sports.length === 1) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        Toast.show({
-          type: "info",
-          text1: "Minimum requis",
-          text2: "Au moins 1 sport doit être sélectionné",
-        });
-        return;
-      }
-      setSports((prev) => prev.filter((s) => s !== sport));
-    } else {
-      if (sports.length >= 5) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        Toast.show({
-          type: "info",
-          text1: "Maximum atteint",
-          text2: "5 sports maximum",
-        });
-        return;
-      }
-      setSports((prev) => [...prev, sport]);
-    }
-  };
+  // ✅ SETTERS
+  const setUserDataFromCache = useCallback(
+    (data: any) => {
+      if (!mountedRef.current) return;
 
-  const handleSave = async () => {
+      setGender(data.gender || "");
+      setNiveau(data.fitness_level || "");
+      setObjectifs(parseArray(data.goals));
+      setSports(parseArray(data.sports));
+      setAvailability(data.availability || {});
+      if (data.location) setLocation(data.location);
+    },
+    [parseArray]
+  );
+
+  const setUserDataFromAPI = useCallback(
+    (data: any) => {
+      if (!mountedRef.current) return;
+
+      setGender(data.gender || "");
+      setNiveau(data.fitness_level || "");
+      setObjectifs(parseArray(data.goals));
+      setSports(parseArray(data.sports));
+      setAvailability(data.availability || {});
+    },
+    [parseArray]
+  );
+
+  // ✅ LOCATION LOADING
+  const loadLocation = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === "granted" && mountedRef.current) {
+        const locationData = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Low,
+        });
+        if (mountedRef.current) {
+          const coords = `${locationData.coords.latitude},${locationData.coords.longitude}`;
+          setLocation(coords);
+        }
+      }
+    } catch (error) {
+      console.warn("Error getting location:", error);
+    }
+  }, []);
+
+  // ✅ CHARGEMENT INITIAL
+  useEffect(() => {
+    if (isFocused && !hasLoadedRef.current) {
+      loadLocation();
+    }
+  }, [isFocused, loadLocation]);
+
+  // ✅ TOGGLE SPORT
+  const toggleSport = useCallback(
+    (sport: string) => {
+      if (!isFocused || !mountedRef.current) return;
+
+      setSports((prevSports: string[]) => {
+        if (prevSports.includes(sport)) {
+          if (prevSports.length === 1) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            Toast.show({
+              type: "info",
+              text1: "Minimum requis",
+              text2: "Au moins 1 sport doit être sélectionné",
+            });
+            return prevSports;
+          }
+          return prevSports.filter((s: string) => s !== sport);
+        } else {
+          if (prevSports.length >= 5) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            Toast.show({
+              type: "info",
+              text1: "Maximum atteint",
+              text2: "5 sports maximum",
+            });
+            return prevSports;
+          }
+          return [...prevSports, sport];
+        }
+      });
+    },
+    [isFocused]
+  );
+
+  // ✅ HANDLE SAVE
+  const handleSave = useCallback(async () => {
+    if (!isFocused || !mountedRef.current || loading) return;
+
     if (!gender || !niveau || sports.length < 1 || objectifs.length < 1) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Toast.show({
         type: "error",
         text1: "Formulaire incomplet",
-        text2: "Veuillez remplir tous les champs",
+        text2: "Veuillez remplir tous les champs requis",
+        visibilityTime: 3000,
+        autoHide: true,
+        topOffset: 100,
       });
       return;
     }
 
-    setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setLoading(true);
 
     try {
       const token = await AsyncStorage.getItem("token");
-      await axios.post(
-        "http://localhost:8000/api/update-profile",
-        {
-          gender,
-          fitness_level: niveau,
-          goals: objectifs,
-          sports,
-          availability,
-          location,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      if (!token) throw new Error("No token");
 
-      setShowSuccess(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const updateData = {
+        gender,
+        fitness_level: niveau,
+        goals: objectifs,
+        sports,
+        availability,
+        location,
+      };
 
-      setTimeout(() => {
-        router.push("/profile");
-      }, 2500);
-    } catch (error) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Toast.show({
-        type: "error",
-        text1: "Erreur",
-        text2: "Une erreur est survenue",
+      await axios.post("http://localhost:8000/api/update-profile", updateData, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 15000,
       });
-    }
-    setLoading(false);
-  };
 
-  const isFormValid =
-    gender && niveau && sports.length > 0 && objectifs.length > 0;
+      if (!mountedRef.current) return;
+
+      CacheManager.setMemoryCache("current_user", null, 0);
+      await CacheManager.invalidateCache("current_user");
+
+      await fetchUser(true);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowSuccess(true);
+
+      saveTimeoutRef.current = setTimeout(() => {
+        if (mountedRef.current) {
+          setShowSuccess(false);
+          router.replace("/profile");
+        }
+      }, 1000) as number;
+    } catch (error) {
+      console.error("❌ Error saving profile:", error);
+      if (mountedRef.current) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Toast.show({
+          type: "error",
+          text1: "Erreur de sauvegarde",
+          text2: "Veuillez réessayer dans quelques instants",
+          visibilityTime: 4000,
+          autoHide: true,
+          topOffset: 100,
+        });
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [
+    isFocused,
+    loading,
+    gender,
+    niveau,
+    sports,
+    objectifs,
+    availability,
+    location,
+    router,
+    fetchUser,
+  ]);
+
+  // ✨ HANDLE TAB CHANGE
+  const handleTabChange = useCallback((tab: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setActiveTab(tab);
+  }, []);
+
+  // ✨ BOUTON SAVE
+  const handleSavePress = useCallback(() => {
+    if (!isFocused || loading || !isFormValid) return;
+
+    buttonScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withSpring(1, { damping: 8, stiffness: 200 })
+    );
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    handleSave();
+  }, [isFocused, loading, isFormValid, handleSave]);
+
+  // ✨ STYLES ANIMÉS
+  const animatedButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: buttonScale.value }],
+    opacity: buttonOpacity.value,
+  }));
+
+  // ✨ EFFET DE LOADING
+  useEffect(() => {
+    if (loading) {
+      buttonOpacity.value = withTiming(0.8, { duration: 200 });
+    } else {
+      buttonOpacity.value = withTiming(1, { duration: 200 });
+    }
+  }, [loading]);
+
+  // ✅ BACK HANDLER
+  const handleBack = useCallback(() => {
+    if (!isFocused) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.back();
+  }, [isFocused, router]);
+
+  // ✅ RENDU MINIMAL SI PAS FOCUS
+  if (!isFocused) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        <View style={styles.minimalistContainer}>
+          <Text style={styles.minimalistText}>Profil</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor={COLORS.white}
+        translucent
+      />
 
-      {/* Animated Header */}
-      <View style={styles.headerContainer}>
-        <View style={styles.headerBackground}>
-          <View style={styles.header}>
-            <View style={styles.headerContent}>
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.back();
-                }}
-                style={styles.backButton}
-                activeOpacity={0.7}
+      {/* ✨ BEAUTIFUL HEADER */}
+      <BeautifulHeader
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        onBack={handleBack}
+      />
+
+      {/* CONTENT */}
+      <View style={styles.contentContainer}>
+        {activeTab === "edit" ? (
+          <EditProfileTab
+            gender={gender}
+            setGender={setGender}
+            niveau={niveau}
+            setNiveau={setNiveau}
+            objectifs={objectifs}
+            setObjectifs={setObjectifs}
+            sports={sports}
+            setSports={setSports}
+            availability={availability}
+            setAvailability={setAvailability}
+            toggleSport={toggleSport}
+            isFocused={isFocused}
+          />
+        ) : (
+          <PreviewProfileTab
+            user={user}
+            sports={sports}
+            objectifs={objectifs}
+            niveau={niveau}
+          />
+        )}
+      </View>
+
+      {/* SAVE BUTTON - Seulement pour l'onglet edit */}
+      {activeTab === "edit" && (
+        <View style={styles.bottomContainer}>
+          <Animated.View style={animatedButtonStyle}>
+            <TouchableOpacity
+              onPress={handleSavePress}
+              disabled={loading || !isFormValid}
+              style={[
+                styles.saveButton,
+                (!isFormValid || loading) && styles.saveButtonDisabled,
+              ]}
+              activeOpacity={0.9}
+            >
+              <LinearGradient
+                colors={
+                  !isFormValid || loading
+                    ? ["#E5E7EB", "#D1D5DB"]
+                    : [COLORS.gradientStart, COLORS.primary]
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.saveButtonGradient}
               >
-                <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
-              </TouchableOpacity>
-
-              <View style={styles.titleContainer}>
-                <Text style={styles.headerTitle}>Modifier le profil</Text>
-              </View>
-
-              <View style={styles.rightSpacer} />
-            </View>
-          </View>
+                {loading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator color={COLORS.white} size="small" />
+                    <Text style={styles.loadingText}>Sauvegarde...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.saveButtonContent}>
+                    <Text style={styles.saveButtonText}>Enregistrer</Text>
+                    <View style={styles.iconContainer}>
+                      <Ionicons
+                        name="checkmark"
+                        size={20}
+                        color={COLORS.white}
+                      />
+                    </View>
+                  </View>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
-      </View>
+      )}
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollViewContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Personal Info Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Informations personnelles</Text>
-          <AnimatedCard delay={200}>
-            <View style={styles.card}>
-              <DropdownSelector
-                label="Genre"
-                selected={gender ? [gender] : []}
-                options={["Homme", "Femme", "Non-binaire", "Autre"]}
-                onSelect={(arr) => setGender(arr[0] || "")}
-                icon="person-outline"
-              />
-              <DropdownSelector
-                label="Niveau sportif"
-                selected={niveau ? [niveau] : []}
-                options={niveauxList}
-                onSelect={(arr) => setNiveau(arr[0] || "")}
-                icon="fitness-outline"
-              />
-            </View>
-          </AnimatedCard>
-        </View>
-
-        {/* Goals Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Tes objectifs</Text>
-          <AnimatedCard delay={400}>
-            <View style={styles.card}>
-              <DropdownSelector
-                label="Objectif(s)"
-                selected={objectifs}
-                options={objectifsList}
-                onSelect={setObjectifs}
-                multiple
-                icon="heart-outline"
-              />
-              <Text style={styles.helperText}>
-                Sélectionne jusqu'à 2 objectifs principaux
-              </Text>
-            </View>
-          </AnimatedCard>
-        </View>
-
-        {/* Sports Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sports pratiqués</Text>
-          <AnimatedCard delay={600}>
-            <View style={styles.card}>
-              <Text style={styles.subsectionTitle}>
-                Choisis tes sports favoris ({sports.length}/5)
-              </Text>
-              <View style={styles.sportsGrid}>
-                {sportsList.map((sport, i) => (
-                  <AnimatedSportChip
-                    key={i}
-                    sport={sport}
-                    selected={sports.includes(sport)}
-                    onPress={() => toggleSport(sport)}
-                  />
-                ))}
-              </View>
-              <Text style={styles.helperText}>
-                Minimum 1 sport, maximum 5 sports
-              </Text>
-            </View>
-          </AnimatedCard>
-        </View>
-
-        {/* Availability Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Disponibilités</Text>
-          <AnimatedCard delay={800}>
-            <View style={styles.card}>
-              <Text style={styles.subsectionTitle}>
-                Quand es-tu disponible pour t'entraîner ?
-              </Text>
-              <View style={styles.availabilityContainer}>
-                <DisponibiliteGrille
-                  onChange={setAvailability}
-                  initial={availability}
-                />
-              </View>
-            </View>
-          </AnimatedCard>
-        </View>
-      </ScrollView>
-
-      {/* Save Button */}
-      <View style={styles.bottomContainer}>
-        <TouchableOpacity
-          onPress={handleSave}
-          disabled={loading || !isFormValid}
-          style={[
-            styles.saveButton,
-            (!isFormValid || loading) && styles.saveButtonDisabled,
-          ]}
-          activeOpacity={0.8}
-        >
-          {loading ? (
-            <ActivityIndicator color={COLORS.white} size="small" />
-          ) : (
-            <>
-              <Text style={styles.saveButtonText}>Enregistrer</Text>
-              <Ionicons name="checkmark" size={20} color={COLORS.white} />
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Success Animation Overlay */}
-      <SuccessAnimation visible={showSuccess} />
+      {/* SUCCESS ANIMATION */}
+      <SuccessAnimation
+        visible={showSuccess}
+        isFocused={isFocused}
+        router={router}
+      />
     </View>
   );
-}
+});
 
+CompleteProfile.displayName = "CompleteProfile";
+
+export default CompleteProfile;
+
+// ✨ STYLES ULTRA MODERNES
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.lightGray,
   },
-  headerContainer: {
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    borderRadius: 0, // Pas de border radius
-  },
-  headerBackground: {
-    backgroundColor: COLORS.white,
-    borderRadius: 0, // Pas de border radius
-  },
-  header: {
-    flexDirection: "row",
+
+  // ✅ STYLES MINIMALISTES
+  minimalistContainer: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingTop: 10, // Encore plus réduit
-    paddingBottom: 8, // Très fin
-    backgroundColor: "transparent",
+    backgroundColor: COLORS.lightGray,
   },
+  minimalistText: {
+    fontSize: 24,
+    fontWeight: "600",
+    color: COLORS.primary,
+  },
+
+  // ✨ BEAUTIFUL HEADER STYLES
+  beautifulHeader: {
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+    zIndex: 100,
+  },
+
+  headerGradient: {
+    paddingTop: StatusBar.currentHeight || 44,
+    paddingBottom: 20,
+    borderBottomLeftRadius: 25,
+    borderBottomRightRadius: 25,
+    overflow: "hidden",
+  },
+
+  glassOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: COLORS.glass,
+    backdropFilter: "blur(10px)",
+  },
+
   headerContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    width: "100%",
+    paddingHorizontal: 20,
+    paddingTop: 10,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.lightGray,
+
+  modernBackButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: COLORS.overlay,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+
+  backButtonInner: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.white,
     justifyContent: "center",
     alignItems: "center",
   },
-  titleContainer: {
+
+  ultraModernTabsContainer: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    position: "relative",
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: COLORS.primary,
-    textAlign: "center",
-  },
-  rightSpacer: {
-    width: 40, // Même largeur que le bouton retour pour équilibrer
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollViewContent: {
-    paddingBottom: 120,
-  },
-  section: {
-    marginTop: 24,
-    paddingHorizontal: 16,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: COLORS.primary,
-    marginBottom: 16,
-  },
-  cardGradient: {
-    borderRadius: 20,
-    padding: 20,
+
+  tabsBackground: {
+    flexDirection: "row",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 30,
+    padding: 6,
+    position: "relative",
+    width: width - 120,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+
+  modernTabIndicator: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    height: 44,
+    width: "48%",
+    borderRadius: 22,
+    zIndex: 1,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
     elevation: 8,
   },
-  card: {
-    backgroundColor: "transparent",
-  },
-  selectorContainer: {
-    marginBottom: 20,
-  },
-  selectorLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.midnight,
-    marginBottom: 8,
-  },
-  selector: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: "#E5E7EB",
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-  },
-  selectorSelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: "rgba(240, 247, 255, 0.9)",
-  },
-  selectorContent: {
-    flexDirection: "row",
-    alignItems: "center",
+
+  indicatorGradient: {
     flex: 1,
-  },
-  selectorIcon: {
-    marginRight: 12,
-  },
-  selectorText: {
-    fontSize: 16,
-    color: COLORS.textSecondary,
-    flex: 1,
-  },
-  selectorTextSelected: {
-    color: COLORS.primary,
-    fontWeight: "500",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: COLORS.overlay,
+    borderRadius: 22,
     justifyContent: "center",
-    padding: 20,
+    alignItems: "center",
   },
-  modalContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
-    maxHeight: "80%",
+
+  modernTab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    zIndex: 2,
+  },
+
+  tabContentWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  tabIcon: {
+    marginRight: 6,
+  },
+
+  modernTabText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.textSecondary,
+    letterSpacing: 0.5,
+  },
+
+  modernTabTextActive: {
+    color: COLORS.white,
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+
+  floatingBadge: {
+    position: "absolute",
+    top: -12,
+    right: -20,
+    borderRadius: 15,
+    overflow: "hidden",
+    shadowColor: COLORS.primaryLight,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+
+  badgeGradient: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+
+  badgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.white,
+    textAlign: "center",
+  },
+
+  rightSpacer: {
+    width: 44,
+  },
+
+  bottomBorder: {
+    height: 3,
+    marginTop: 10,
+    marginHorizontal: 40,
+    borderRadius: 2,
     overflow: "hidden",
   },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: COLORS.primary,
-  },
-  modalCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.lightGray,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  modalOptionSelected: {
-    backgroundColor: "#FFF7F5",
-  },
-  modalOptionDisabled: {
-    opacity: 0.5,
-  },
-  modalOptionText: {
-    fontSize: 16,
-    color: COLORS.midnight,
+
+  borderGradient: {
     flex: 1,
   },
-  modalOptionTextSelected: {
-    color: COLORS.accent,
-    fontWeight: "500",
+
+  // ✨ CONTENT STYLES
+  contentContainer: {
+    flex: 1,
   },
-  modalOptionTextDisabled: {
-    color: COLORS.textSecondary,
-  },
-  modalValidateButton: {
-    backgroundColor: COLORS.accent,
-    marginHorizontal: 20,
-    marginVertical: 16,
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  modalValidateButtonDisabled: {
-    backgroundColor: "#E5E7EB",
-  },
-  modalValidateButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.white,
-  },
-  modalValidateButtonTextDisabled: {
-    color: COLORS.textSecondary,
-  },
-  subsectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: COLORS.midnight,
-    marginBottom: 16,
-  },
-  helperText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginTop: 8,
-    fontStyle: "italic",
-  },
-  sportsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  sportChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: "#E5E7EB",
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    marginBottom: 8,
-  },
-  sportChipSelected: {
-    borderColor: COLORS.accent,
-    backgroundColor: COLORS.accent,
-  },
-  sportChipText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: COLORS.midnight,
-  },
-  sportChipTextSelected: {
-    color: COLORS.white,
-    fontWeight: "600",
-  },
-  availabilityContainer: {
-    backgroundColor: "rgba(248, 249, 250, 0.8)",
-    borderRadius: 16,
-    padding: 16,
-  },
+
+  // ✨ SAVE BUTTON STYLES
   bottomContainer: {
     position: "absolute",
     bottom: 0,
@@ -998,22 +999,27 @@ const styles = StyleSheet.create({
     paddingBottom: 34,
   },
   saveButton: {
-    backgroundColor: COLORS.accent,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 16,
     borderRadius: 20,
-    shadowColor: COLORS.accent,
+    overflow: "hidden",
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 12,
   },
   saveButtonDisabled: {
-    backgroundColor: "#E5E7EB",
     shadowOpacity: 0,
     elevation: 0,
+  },
+  saveButtonGradient: {
+    paddingVertical: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   saveButtonText: {
     fontSize: 18,
@@ -1021,32 +1027,71 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     marginRight: 8,
   },
+  iconContainer: {
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 12,
+    padding: 4,
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: COLORS.white,
+    marginLeft: 8,
+  },
+
+  // ✨ SUCCESS ANIMATION STYLES
   successOverlay: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "transparent", // Enlevé le background sombre
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
     justifyContent: "center",
     alignItems: "center",
     zIndex: 1000,
   },
   successContainer: {
     backgroundColor: COLORS.white,
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 40,
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 20,
+    shadowRadius: 30,
+    elevation: 25,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    minWidth: 280,
+    maxWidth: 320,
+  },
+  checkmarkContainer: {
+    marginBottom: 16,
+    borderRadius: 50,
+    overflow: "hidden",
+    shadowColor: COLORS.success,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 15,
+  },
+  checkmarkGradient: {
+    padding: 8,
+    borderRadius: 50,
+    justifyContent: "center",
+    alignItems: "center",
   },
   successText: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
     color: COLORS.success,
-    marginTop: 16,
+    marginBottom: 8,
+    textAlign: "center",
   },
 });

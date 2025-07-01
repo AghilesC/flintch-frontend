@@ -2,6 +2,7 @@
   "expo": {
     "name": "MatchFrontend",
     "slug": "MatchFrontend",
+    "owner": "flintch",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -13,22 +14,18 @@
       "infoPlist": {
         "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you.",
         "SKAdNetworkItems": [
-          {
-            "SKAdNetworkIdentifier": "v9wttpbfk9.skadnetwork"
-          },
-          {
-            "SKAdNetworkIdentifier": "n38lu8286q.skadnetwork"
-          }
+          { "SKAdNetworkIdentifier": "v9wttpbfk9.skadnetwork" },
+          { "SKAdNetworkIdentifier": "n38lu8286q.skadnetwork" }
         ]
       }
     },
     "android": {
       "package": "com.flintch.matchfrontend",
+      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
+      }
     },
     "web": {
       "bundler": "metro",
@@ -47,7 +44,6 @@
         }
       ],
       "expo-web-browser",
-
       "expo-font"
     ],
     "experiments": {
@@ -58,6 +54,9 @@
       "eas": {
         "projectId": "37bf068d-a621-4273-adda-0c7d46ae9341"
       }
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#ffffff"
     }
   }
 }

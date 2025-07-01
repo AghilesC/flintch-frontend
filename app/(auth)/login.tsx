@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
+import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -16,11 +17,10 @@ import {
   View,
 } from "react-native";
 
-const bgImage = require("../../assets/splash.png"); // adapte le chemin
+const bgImage = require("../../assets/splash.png");
 
 WebBrowser.maybeCompleteAuthSession();
 
-// === Les deux clientId que tu viens de donner ===
 const GOOGLE_CLIENT_ID_ANDROID =
   "341029156576-uhfpjhjmer0999qu5hvprbraakl470pb.apps.googleusercontent.com";
 const GOOGLE_CLIENT_ID_WEB =
@@ -31,7 +31,6 @@ const LoginScreen = () => {
   const [checking, setChecking] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  // Blocage si déjà loggué
   useEffect(() => {
     const checkToken = async () => {
       const token = await AsyncStorage.getItem("token");
@@ -44,14 +43,15 @@ const LoginScreen = () => {
     checkToken();
   }, []);
 
-  // Hook Google (utilise les deux IDs selon la plateforme)
+  // ✅ IMPORTANT : utilise useProxy true et le redirectUri standard Expo
   const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: GOOGLE_CLIENT_ID_ANDROID,
-    expoClientId: GOOGLE_CLIENT_ID_WEB,
-    webClientId: GOOGLE_CLIENT_ID_WEB,
+    clientId: GOOGLE_CLIENT_ID_WEB,
+    useProxy: true,
+    redirectUri: AuthSession.makeRedirectUri({
+      scheme: "matchfrontend",
+    }),
   });
 
-  // Gestion retour Google
   useEffect(() => {
     if (response?.type === "success" && !loading) {
       const { authentication } = response;
@@ -59,11 +59,8 @@ const LoginScreen = () => {
         handleSocialLogin("google", authentication.accessToken);
       }
     }
-    // Ajoute bien loading pour éviter boucle infinie
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [response, loading]);
 
-  // Login Google (et social en général)
   const handleSocialLogin = async (provider: "google", socialToken: string) => {
     setLoading(true);
     try {
@@ -72,7 +69,6 @@ const LoginScreen = () => {
         token: socialToken,
       });
 
-      // Version "needRegister"
       const { token, user, needRegister, name, email } = res.data;
 
       if (needRegister) {
@@ -133,7 +129,6 @@ const LoginScreen = () => {
           <Text style={styles.logo}>Flintch</Text>
           <Text style={styles.slogan}>Sweat & Connect</Text>
 
-          {/* BOUTON GOOGLE */}
           <TouchableOpacity
             style={styles.btnGoogle}
             disabled={!request || loading}
@@ -163,7 +158,6 @@ const LoginScreen = () => {
 
 export default LoginScreen;
 
-// ------------------- STYLE 100% REACT-NATIVE ------------
 const styles = StyleSheet.create({
   container: {
     flex: 1,

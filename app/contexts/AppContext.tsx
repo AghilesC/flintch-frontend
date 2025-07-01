@@ -17,12 +17,14 @@ interface User {
   name: string;
   email: string;
   profile_photo?: string;
+  photos?: string[]; // ✅ AJOUT: Array de photos
   gender?: string;
   fitness_level?: string;
   goals?: string[]; // ✅ Optional array
   sports?: string[]; // ✅ Optional array
   availability?: any;
   birthdate?: string;
+  bio?: string; // ✅ AJOUT: Bio pour l'aperçu
   // autres propriétés...
 }
 
@@ -112,10 +114,51 @@ const normalizeUserData = (rawUserData: any): User => {
     return [];
   };
 
+  // ✅ NORMALISATION DES PHOTOS
+  const normalizePhotos = (
+    photosData: any,
+    profilePhoto?: string
+  ): string[] => {
+    let photos: string[] = [];
+
+    // Si on a un array de photos
+    if (Array.isArray(photosData)) {
+      photos = photosData.filter(
+        (photo: any) =>
+          photo && typeof photo === "string" && photo.trim() !== ""
+      );
+    }
+    // Si c'est une string JSON
+    else if (typeof photosData === "string" && photosData.trim() !== "") {
+      try {
+        const parsed = JSON.parse(photosData);
+        if (Array.isArray(parsed)) {
+          photos = parsed.filter(
+            (photo: any) =>
+              photo && typeof photo === "string" && photo.trim() !== ""
+          );
+        }
+      } catch {
+        // Si c'est pas du JSON, traiter comme une seule photo
+        photos = [photosData.trim()];
+      }
+    }
+
+    // Ajouter profile_photo en première position si elle existe et n'est pas déjà dans photos
+    if (profilePhoto && profilePhoto.trim() !== "") {
+      if (!photos.includes(profilePhoto)) {
+        photos.unshift(profilePhoto);
+      }
+    }
+
+    return photos;
+  };
+
   const normalized = {
     ...rawUserData,
     sports: normalizeStringArray(rawUserData.sports),
     goals: normalizeStringArray(rawUserData.goals),
+    photos: normalizePhotos(rawUserData.photos, rawUserData.profile_photo), // ✅ NORMALISATION PHOTOS
   };
 
   console.log("🔧 User data normalized:", {
@@ -123,6 +166,9 @@ const normalizeUserData = (rawUserData: any): User => {
     normalizedSports: normalized.sports,
     originalGoals: rawUserData.goals,
     normalizedGoals: normalized.goals,
+    originalPhotos: rawUserData.photos,
+    profilePhoto: rawUserData.profile_photo,
+    normalizedPhotos: normalized.photos, // ✅ LOG PHOTOS
   });
 
   return normalized;
@@ -214,7 +260,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ✅ Fix TypeScript : en React Native, setInterval retourne un number
   const backgroundRefreshRef = useRef<number | null>(null);
 
-  // 🚀 FETCH USER ULTRA OPTIMISÉ - Cache mémoire priority
+  // 🚀 FETCH USER ULTRA OPTIMISÉ - Cache mémoire priority + PHOTOS
   const fetchUser = useCallback(
     async (force = false) => {
       const now = Date.now();
@@ -271,15 +317,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const response = await axios.get("http://localhost:8000/api/user", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // ✅ FETCH USER DATA ET PHOTOS EN PARALLÈLE
+        const [userResponse, photosResponse] = await Promise.all([
+          axios.get("http://localhost:8000/api/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          // ✅ UTILISER L'ENDPOINT EXISTANT /photos
+          axios
+            .get("http://localhost:8000/api/photos", {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            .catch(async (error) => {
+              console.warn("⚠️ Photos endpoint error:", error.message);
+              return { data: [] }; // Fallback en cas d'erreur
+            }),
+        ]);
 
-        const rawUserData = response.data;
+        const rawUserData = userResponse.data;
+        const photosData = photosResponse.data;
+
         console.log("🌐 Raw user data from API:", rawUserData);
+        console.log("📸 Photos data from API:", photosData);
 
-        // ✅ NORMALISER LES DONNÉES
-        const normalizedUserData = normalizeUserData(rawUserData);
+        // ✅ TRAITER LES PHOTOS SELON LA STRUCTURE DE VOTRE UserPhotoController
+        let photoUrls = [];
+
+        // Votre contrôleur retourne { status: true, photos: [...] }
+        if (
+          photosData &&
+          photosData.status &&
+          Array.isArray(photosData.photos)
+        ) {
+          photoUrls = photosData.photos
+            .map((photo) => {
+              // Votre structure : { id, is_main, url }
+              return photo.url;
+            })
+            .filter(Boolean);
+        }
+
+        console.log("🔄 Processed photo URLs:", photoUrls);
+
+        // ✅ COMBINER USER DATA AVEC PHOTOS
+        const userDataWithPhotos = {
+          ...rawUserData,
+          photos: photoUrls,
+        };
+
+        // ✅ NORMALISER LES DONNÉES (inclut maintenant les photos)
+        const normalizedUserData = normalizeUserData(userDataWithPhotos);
 
         dispatch({ type: "SET_USER", payload: normalizedUserData });
         dispatch({ type: "UPDATE_LAST_FETCH", payload: { key: "user" } });
@@ -296,7 +382,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           30 * 60 * 1000 // 30min persistant
         );
 
-        console.log("✅ User data loaded, normalized and double cached");
+        console.log(
+          "✅ User data loaded with photos, normalized and double cached"
+        );
       } catch (error) {
         console.error("❌ Error fetching user:", error);
       } finally {
