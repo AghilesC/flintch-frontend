@@ -12,6 +12,7 @@ import "react-native-reanimated";
 import Toast from "react-native-toast-message";
 import CacheManager from "../utils/CacheManager";
 import { AppProvider } from "./contexts/AppContext";
+import { NotificationProvider } from "./contexts/NotificationContext";
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -52,21 +53,25 @@ export default function RootLayout() {
 
   return (
     <AppProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="splash" />
-            <Stack.Screen name="(auth)/login" />
-            <Stack.Screen name="(auth)/register" />
-            <Stack.Screen name="(auth)/complete-profile" />
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="chat/[id]" />
-            <Stack.Screen name="+not-found" options={{ headerShown: true }} />
-          </Stack>
-          <StatusBar style="auto" />
-          <Toast />
-        </>
-      </ThemeProvider>
+      <NotificationProvider>
+        <ThemeProvider
+          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+        >
+          <>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="splash" />
+              <Stack.Screen name="(auth)/login" />
+              <Stack.Screen name="(auth)/register" />
+              <Stack.Screen name="(auth)/complete-profile" />
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="chat/[id]" />
+              <Stack.Screen name="+not-found" options={{ headerShown: true }} />
+            </Stack>
+            <StatusBar style="auto" />
+            <Toast />
+          </>
+        </ThemeProvider>
+      </NotificationProvider>
     </AppProvider>
   );
 }

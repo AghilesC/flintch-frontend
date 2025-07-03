@@ -20,8 +20,8 @@ import {
   View,
 } from "react-native";
 
-// ✅ IMPORTS OPTIMISÉS
 import CacheManager from "../../utils/CacheManager";
+import { useNotifications } from "../contexts/NotificationContext";
 
 const COLORS = {
   primary: "#0E4A7B",
@@ -40,9 +40,10 @@ interface Message {
   text: string;
   timestamp: string;
   isMe: boolean;
+  isOptimistic?: boolean;
 }
 
-// ✅ COMPOSANT MESSAGE OPTIMISÉ AVEC MEMO
+// ✅ COMPOSANT MESSAGE ULTRA-OPTIMISÉ
 const MessageItem = React.memo(
   ({
     item,
@@ -72,12 +73,14 @@ const MessageItem = React.memo(
               style={[
                 styles.messageBubble,
                 item.isMe ? styles.myMessage : styles.theirMessage,
+                item.isOptimistic && styles.optimisticMessage,
               ]}
             >
               <Text
                 style={[
                   styles.messageText,
                   item.isMe ? styles.myMessageText : styles.theirMessageText,
+                  item.isOptimistic && styles.optimisticText,
                 ]}
               >
                 {item.text}
@@ -90,145 +93,224 @@ const MessageItem = React.memo(
         </Animated.View>
       </Pressable>
     );
+  },
+  (prevProps, nextProps) => {
+    // ✅ Comparaison personnalisée pour éviter les re-renders inutiles
+    return (
+      prevProps.item.id === nextProps.item.id &&
+      prevProps.item.text === nextProps.item.text &&
+      prevProps.item.isOptimistic === nextProps.item.isOptimistic &&
+      prevProps.selectedMessageId === nextProps.selectedMessageId
+    );
   }
 );
 
-// ✅ COMPOSANT PRINCIPAL AVEC MEMO
 const IndividualChatScreen = React.memo(() => {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { id: userId, name, avatar } = params;
+  const { refreshUnreadCount } = useNotifications();
 
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(
     null
   );
-  const [isFocused, setIsFocused] = useState(true);
-  const [lastFetch, setLastFetch] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [isFocused, setIsFocused] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [isFirstLoad, setIsFirstLoad] = useState(true);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
+  // ✅ REFS POUR OPTIMISATION
   const flatListRef = useRef<FlatList>(null);
   const scaleAnimations = useRef<Record<string, Animated.Value>>({}).current;
+  const lastFetchRef = useRef(0);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const messagesRef = useRef<Message[]>([]);
+  const isLoadingRef = useRef(false);
+  const lastMessageIdRef = useRef<string | null>(null);
 
-  console.log("🧭 Paramètres route:", params);
+  // ✅ CONSTANTS OPTIMISÉES
+  const CACHE_DURATION = 15 * 1000; // 15 secondes
+  const POLL_INTERVAL = 8000; // 8 secondes
+  const BATCH_SIZE = 20;
 
-  if (!userId) {
-    console.warn("⚠️ Aucun userId trouvé dans les paramètres de route.");
-  }
+  console.log("🧭 Paramètres route:", { userId, name });
 
-  // ✅ OPTIMISATION: Focus effect
+  // ✅ FOCUS EFFECT ULTRA-OPTIMISÉ
   useFocusEffect(
     useCallback(() => {
-      console.log("🎯 IndividualChatScreen focused");
+      console.log("🎯 Chat focused");
       setIsFocused(true);
+
+      // Charge les messages seulement si premier load ou cache expiré
+      const now = Date.now();
+      if (isFirstLoad || now - lastFetchRef.current > CACHE_DURATION) {
+        fetchMessages(true);
+      }
+
       return () => {
-        console.log("😴 IndividualChatScreen blurred");
+        console.log("😴 Chat blurred");
         setIsFocused(false);
-        // ✅ Cleanup animations quand on quitte
-        Object.values(scaleAnimations).forEach((anim) => {
-          anim.setValue(1);
-        });
+        setSelectedMessageId(null);
+
+        // Cleanup polling
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
       };
-    }, [scaleAnimations])
+    }, [isFirstLoad])
   );
 
-  // ✅ FETCH MESSAGES AVEC CACHE INTELLIGENT
+  // ✅ FETCH MESSAGES INTELLIGENT AVEC CACHE STRATIFIÉ
   const fetchMessages = useCallback(
-    async (force = false) => {
+    async (force = false, loadMore = false) => {
+      if (isLoadingRef.current) return;
+
       const now = Date.now();
-      const CACHE_DURATION = 30 * 1000; // 30 secondes pour les messages
       const cacheKey = `messages_${userId}`;
 
-      // Skip si pas forcé et récent
-      if (!force && now - lastFetch < CACHE_DURATION && !isFocused) {
-        console.log("🚀 Messages: Skipping fetch (recent or not focused)");
+      // ✅ Skip si pas nécessaire
+      if (!force && !loadMore && now - lastFetchRef.current < CACHE_DURATION) {
+        console.log("⏭️ Skip fetch - cache recent");
         return;
       }
 
+      isLoadingRef.current = true;
+      if (!loadMore) setLoading(true);
+
       try {
-        // ⚡ Cache mémoire first
-        if (!force) {
-          const cachedMessages = CacheManager.getMemoryCache(cacheKey);
-          if (cachedMessages && cachedMessages.length >= 0) {
-            console.log("⚡ Messages loaded from MEMORY cache");
-            setMessages(cachedMessages);
+        // ✅ 1. Cache mémoire ultra-rapide
+        if (!force && !loadMore && isFirstLoad) {
+          const memoryCache = CacheManager.getMemoryCache(cacheKey);
+          if (memoryCache?.length > 0) {
+            console.log("⚡ Chargement depuis cache mémoire");
+            setMessages(memoryCache);
+            messagesRef.current = memoryCache;
             setLoading(false);
-            setLastFetch(now);
+            setIsFirstLoad(false);
+            lastFetchRef.current = now;
             return;
           }
         }
 
-        // 📦 Cache persistant
-        if (!force) {
-          const persistentMessages = await CacheManager.getPersistentCache(
+        // ✅ 2. Cache persistant
+        if (!force && !loadMore && isFirstLoad) {
+          const persistentCache = await CacheManager.getPersistentCache(
             cacheKey
           );
-          if (persistentMessages && persistentMessages.length >= 0) {
-            console.log("📦 Messages loaded from persistent cache");
-            setMessages(persistentMessages);
+          if (persistentCache?.length > 0) {
+            console.log("📦 Chargement depuis cache persistant");
+            setMessages(persistentCache);
+            messagesRef.current = persistentCache;
             setLoading(false);
-            setLastFetch(now);
+            setIsFirstLoad(false);
+            lastFetchRef.current = now;
 
             // Remettre en cache mémoire
             CacheManager.setMemoryCache(
               cacheKey,
-              persistentMessages,
-              2 * 60 * 1000
+              persistentCache,
+              3 * 60 * 1000
             );
             return;
           }
         }
 
-        console.log("🌐 Fetching messages from API");
-        setLoading(true);
+        // ✅ 3. API Call optimisé
+        console.log("🌐 Fetch depuis API");
 
         const token = await AsyncStorage.getItem("token");
-        const res = await axios.get(
-          `http://localhost:8000/api/messages/${userId}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+        const url = loadMore
+          ? `http://localhost:8000/api/messages/${userId}?before=${lastMessageIdRef.current}&limit=${BATCH_SIZE}`
+          : `http://localhost:8000/api/messages/${userId}?limit=${BATCH_SIZE}`;
 
-        console.log("📨 Fetched messages:", res.data);
+        const res = await axios.get(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-        const formatted = res.data.messages.map((msg: any) => ({
+        const newMessages = res.data.messages.map((msg: any) => ({
           id: msg.id.toString(),
           text: msg.message,
           timestamp: msg.sent_at ?? msg.created_at,
           isMe: msg.sender_id === res.data.current_user_id,
         }));
 
-        console.log("✅ Formatted messages:", formatted);
-        setMessages(formatted);
-        setLastFetch(now);
+        if (loadMore) {
+          // ✅ Pagination - ajout des anciens messages
+          const updatedMessages = [...newMessages, ...messagesRef.current];
+          setMessages(updatedMessages);
+          messagesRef.current = updatedMessages;
+          setHasMoreMessages(newMessages.length === BATCH_SIZE);
+        } else {
+          // ✅ Nouveau chargement
+          setMessages(newMessages);
+          messagesRef.current = newMessages;
+          setHasMoreMessages(newMessages.length === BATCH_SIZE);
 
-        // ✅ Double cache pour performance
-        CacheManager.setMemoryCache(cacheKey, formatted, 2 * 60 * 1000);
-        await CacheManager.setPersistentCache(
-          cacheKey,
-          formatted,
-          5 * 60 * 1000
-        );
+          // Mise en cache double
+          CacheManager.setMemoryCache(cacheKey, newMessages, 3 * 60 * 1000);
+          await CacheManager.setPersistentCache(
+            cacheKey,
+            newMessages,
+            10 * 60 * 1000
+          );
+        }
+
+        // ✅ Mise à jour références
+        if (newMessages.length > 0) {
+          lastMessageIdRef.current = newMessages[newMessages.length - 1].id;
+        }
+
+        lastFetchRef.current = now;
+        setIsFirstLoad(false);
       } catch (error) {
-        console.error("❌ Erreur fetch messages:", error);
+        console.error("❌ Erreur fetch:", error);
       } finally {
+        isLoadingRef.current = false;
         setLoading(false);
+        setRefreshing(false);
       }
     },
-    [userId, lastFetch, isFocused]
+    [userId, isFirstLoad]
   );
 
-  // ✅ SEND MESSAGE OPTIMISÉ
+  // ✅ POLLING INTELLIGENT
+  useEffect(() => {
+    if (!isFocused || isFirstLoad) return;
+
+    const startPolling = () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+
+      pollIntervalRef.current = setInterval(async () => {
+        if (!isFocused || isLoadingRef.current) return;
+
+        console.log("🔄 Polling...");
+        await fetchMessages(true);
+      }, POLL_INTERVAL);
+    };
+
+    startPolling();
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [isFocused, isFirstLoad, fetchMessages]);
+
+  // ✅ SEND MESSAGE ULTRA-OPTIMISÉ
   const sendMessage = useCallback(async () => {
     if (!message.trim()) return;
 
     const messageText = message.trim();
-    const tempId = Date.now().toString();
-
-    // ✅ Optimistic update
-    const newMessage: Message = {
+    const tempId = `temp_${Date.now()}`;
+    const optimisticMessage: Message = {
       id: tempId,
       text: messageText,
       timestamp: new Date().toLocaleTimeString("fr-FR", {
@@ -236,50 +318,68 @@ const IndividualChatScreen = React.memo(() => {
         minute: "2-digit",
       }),
       isMe: true,
+      isOptimistic: true,
     };
 
-    setMessages((prev) => [...prev, newMessage]);
+    // ✅ Optimistic update instantané
+    const newMessages = [...messagesRef.current, optimisticMessage];
+    setMessages(newMessages);
+    messagesRef.current = newMessages;
     setMessage("");
 
-    // ✅ Scroll to end
+    // ✅ Scroll immédiat
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    }, 50);
 
     try {
       const token = await AsyncStorage.getItem("token");
-      const payload = {
-        receiver_id: userId,
-        message: messageText,
+      const res = await axios.post(
+        "http://localhost:8000/api/messages/send",
+        { receiver_id: userId, message: messageText },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // ✅ Remplace le message optimistic par le vrai
+      const realMessage: Message = {
+        id: res.data.message.id.toString(),
+        text: messageText,
+        timestamp: res.data.message.created_at,
+        isMe: true,
       };
 
-      console.log("✉️ Envoi message:", payload);
-      await axios.post("http://localhost:8000/api/messages/send", payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const updatedMessages = messagesRef.current.map((msg) =>
+        msg.id === tempId ? realMessage : msg
+      );
 
-      // ✅ Invalider cache pour refresh à la prochaine visite
+      setMessages(updatedMessages);
+      messagesRef.current = updatedMessages;
+
+      // ✅ Invalide cache pour synchronisation
       const cacheKey = `messages_${userId}`;
       CacheManager.setMemoryCache(cacheKey, null, 0);
       await CacheManager.invalidateCache(cacheKey);
 
-      // ✅ Refresh après envoi
+      // ✅ Refresh badge sans bloquer l'UI
       setTimeout(() => {
-        fetchMessages(true);
-      }, 500);
+        refreshUnreadCount();
+      }, 100);
     } catch (error) {
-      console.error("❌ Erreur envoi message:", error);
+      console.error("❌ Erreur envoi:", error);
 
-      // ✅ Rollback en cas d'erreur
-      setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
+      // ✅ Rollback optimistic
+      const rolledBackMessages = messagesRef.current.filter(
+        (msg) => msg.id !== tempId
+      );
+      setMessages(rolledBackMessages);
+      messagesRef.current = rolledBackMessages;
+      setMessage(messageText); // Restore le message
     }
-  }, [message, userId, fetchMessages]);
+  }, [message, userId, refreshUnreadCount]);
 
   // ✅ HANDLE MESSAGE PRESS OPTIMISÉ
   const handleMessagePress = useCallback(
     (id: string) => {
-      if (!isFocused) return; // Skip si pas focus
-
       setSelectedMessageId((prev) => (prev === id ? null : id));
 
       if (!scaleAnimations[id]) {
@@ -288,29 +388,35 @@ const IndividualChatScreen = React.memo(() => {
 
       Animated.sequence([
         Animated.timing(scaleAnimations[id], {
-          toValue: 1.03,
-          duration: 80,
+          toValue: 1.02,
+          duration: 60,
           useNativeDriver: true,
         }),
         Animated.spring(scaleAnimations[id], {
           toValue: 1,
-          friction: 6,
-          tension: 100,
+          friction: 8,
+          tension: 120,
           useNativeDriver: true,
         }),
       ]).start();
     },
-    [scaleAnimations, isFocused]
+    [scaleAnimations]
   );
 
-  // ✅ CHARGEMENT INITIAL
-  useEffect(() => {
-    if (isFocused) {
-      fetchMessages();
+  // ✅ LOAD MORE MESSAGES
+  const loadMoreMessages = useCallback(() => {
+    if (hasMoreMessages && !isLoadingRef.current) {
+      fetchMessages(false, true);
     }
-  }, [isFocused, fetchMessages]);
+  }, [hasMoreMessages, fetchMessages]);
 
-  // ✅ RENDER MESSAGE OPTIMISÉ
+  // ✅ REFRESH HANDLER
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchMessages(true);
+  }, [fetchMessages]);
+
+  // ✅ RENDERS OPTIMISÉS
   const renderMessage = useCallback(
     ({ item }: { item: Message }) => {
       const scale = scaleAnimations[item.id] || new Animated.Value(1);
@@ -326,36 +432,14 @@ const IndividualChatScreen = React.memo(() => {
     [selectedMessageId, handleMessagePress, scaleAnimations]
   );
 
-  // ✅ KEY EXTRACTOR OPTIMISÉ
   const keyExtractor = useCallback((item: Message) => item.id, []);
 
-  // ✅ GET ITEM LAYOUT pour performance FlatList
-  const getItemLayout = useCallback(
-    (data: any, index: number) => ({
-      length: 60, // hauteur moyenne d'un message
-      offset: 60 * index,
-      index,
-    }),
-    []
-  );
-
-  // ✅ HANDLE BACK OPTIMISÉ
   const handleBack = useCallback(() => {
+    refreshUnreadCount();
     router.push("/chat");
-  }, [router]);
+  }, [router, refreshUnreadCount]);
 
-  // ✅ RENDU MINIMAL SI PAS FOCUS
-  if (!isFocused) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
-        <View style={styles.minimalistContainer}>
-          <Text style={styles.minimalistText}>Chat avec {name}</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
+  // ✅ RENDU OPTIMISÉ
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
@@ -394,13 +478,22 @@ const IndividualChatScreen = React.memo(() => {
         style={styles.messagesList}
         contentContainerStyle={styles.messagesContainer}
         showsVerticalScrollIndicator={false}
-        // ✅ OPTIMISATIONS PERFORMANCE FLATLIST
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+        onEndReached={loadMoreMessages}
+        onEndReachedThreshold={0.1}
+        inverted={false}
+        // ✅ OPTIMISATIONS PERFORMANCE MAX
         removeClippedSubviews={true}
-        maxToRenderPerBatch={10}
-        updateCellsBatchingPeriod={50}
-        windowSize={21}
-        getItemLayout={getItemLayout}
-        initialNumToRender={20}
+        maxToRenderPerBatch={8}
+        updateCellsBatchingPeriod={30}
+        windowSize={15}
+        initialNumToRender={15}
+        getItemLayout={(data, index) => ({
+          length: 60,
+          offset: 60 * index,
+          index,
+        })}
       />
 
       <KeyboardAvoidingView
@@ -416,22 +509,23 @@ const IndividualChatScreen = React.memo(() => {
               value={message}
               onChangeText={setMessage}
               multiline
+              maxLength={1000}
             />
           </View>
 
           <TouchableOpacity
-            style={styles.sendButton}
+            style={[
+              styles.sendButton,
+              message.trim() && styles.sendButtonActive,
+            ]}
             onPress={sendMessage}
             disabled={!message.trim()}
           >
-            <Text
-              style={[
-                styles.sendButtonText,
-                message.trim() && { color: COLORS.accent, fontWeight: "600" },
-              ]}
-            >
-              Envoyer
-            </Text>
+            <Ionicons
+              name="send"
+              size={20}
+              color={message.trim() ? COLORS.accent : COLORS.textGray}
+            />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -447,20 +541,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
-  },
-  // ✅ NOUVEAU: Style minimaliste
-  minimalistContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: COLORS.lightGray,
-  },
-  minimalistText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: COLORS.midnight,
-    textAlign: "center",
-    paddingHorizontal: 20,
   },
   header: {
     flexDirection: "row",
@@ -528,6 +608,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 81, 53, 0.2)",
     alignSelf: "flex-start",
   },
+  optimisticMessage: {
+    opacity: 0.7,
+  },
   messageText: {
     fontSize: 16,
     lineHeight: 20,
@@ -538,9 +621,12 @@ const styles = StyleSheet.create({
   theirMessageText: {
     color: COLORS.midnight,
   },
+  optimisticText: {
+    fontStyle: "italic",
+  },
   inputContainer: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: COLORS.white,
@@ -562,13 +648,15 @@ const styles = StyleSheet.create({
     textAlignVertical: "center",
   },
   sendButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.softGray,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  sendButtonText: {
-    fontSize: 16,
-    color: COLORS.textGray,
-    fontWeight: "500",
+  sendButtonActive: {
+    backgroundColor: "rgba(255, 81, 53, 0.1)",
   },
   introMessageContainer: {
     paddingVertical: 24,

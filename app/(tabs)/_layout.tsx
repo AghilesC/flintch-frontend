@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Tabs } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import {
   Platform,
   StyleSheet,
@@ -28,6 +28,7 @@ import {
 } from "@expo-google-fonts/poppins";
 import AppLoading from "expo-app-loading";
 import { useApp } from "../contexts/AppContext";
+import { useNotifications } from "../contexts/NotificationContext"; // ✅ AJOUT
 
 // Flintch Colors
 const COLORS = {
@@ -129,14 +130,25 @@ function SimpleTabButton(props: any) {
 export default function TabLayout() {
   // ✅ Context optimisé
   const { state } = useApp();
+  const { unreadCount, refreshUnreadCount } = useNotifications(); // ✅ AJOUT
+
+  // ✅ Log pour debug
+  useEffect(() => {
+    console.log("🎯 TabLayout - unreadCount:", unreadCount);
+  }, [unreadCount]);
+
+  // ✅ Refresh au montage
+  useEffect(() => {
+    refreshUnreadCount();
+  }, [refreshUnreadCount]);
 
   // ✅ Mémoise les notifications
   const notifications = useMemo(
     () => ({
-      chat: state.notifications.chat,
+      chat: unreadCount, // ✅ MODIFIÉ: Utilise unreadCount du NotificationContext
       matches: state.notifications.matches,
     }),
-    [state.notifications.chat, state.notifications.matches]
+    [unreadCount, state.notifications.matches] // ✅ MODIFIÉ: unreadCount au lieu de state.notifications.chat
   );
 
   // Polices
@@ -236,7 +248,7 @@ export default function TabLayout() {
               size={24}
               color={color}
               focused={focused}
-              badgeCount={notifications.chat}
+              badgeCount={notifications.chat} // ✅ Utilise unreadCount via notifications.chat
             />
           ),
         }}

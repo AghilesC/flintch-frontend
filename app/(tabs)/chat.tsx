@@ -2,9 +2,17 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
+  Alert,
+  AppState,
   Dimensions,
   FlatList,
   Image,
@@ -23,6 +31,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import { useNotifications } from "../contexts/NotificationContext"; // IMPORTANT: Ajoutez cette ligne
 
 const { width } = Dimensions.get("window");
 
@@ -182,11 +191,11 @@ function ChatItem({
         </Text>
       </View>
 
-      {item.unreadCount && (
+      {item.unreadCount ? (
         <View style={styles.unreadBadge}>
           <Text style={styles.unreadCount}>{item.unreadCount}</Text>
         </View>
-      )}
+      ) : null}
     </TouchableOpacity>
   );
 }
@@ -194,14 +203,16 @@ function ChatItem({
 // Composant principal
 export default function ChatScreen() {
   const router = useRouter();
+  const { refreshUnreadCount, decrementUnreadCount } = useNotifications(); // IMPORTANT: Utiliser le contexte
   const [searchQuery, setSearchQuery] = useState("");
   const [partners, setPartners] = useState<ChatPreview[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [viewedPartners, setViewedPartners] = useState<Set<number>>(new Set());
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const appStateRef = useRef(AppState.currentState);
 
-  // Helper function
+  // Helper function pour formater le temps
   const getTimeAgo = useCallback((dateString: string): string => {
     const now = new Date();
     const date = new Date(dateString);
@@ -227,6 +238,7 @@ export default function ChatScreen() {
           headers: { Authorization: `Bearer ${token}` },
         });
         setCurrentUserId(response.data.id);
+        console.log("👤 Utilisateur actuel chargé:", response.data.id);
       }
     } catch (error) {
       console.error("Erreur chargement utilisateur:", error);
@@ -255,6 +267,8 @@ export default function ChatScreen() {
         return;
       }
 
+      console.log("🔄 Chargement des partenaires...");
+
       const response = await axios.get(
         "http://localhost:8000/api/matches?include_messages=true",
         {
@@ -263,6 +277,7 @@ export default function ChatScreen() {
       );
 
       const apiPartners: ApiPartner[] = response.data;
+      console.log(`✅ ${apiPartners.length} partenaires chargés`);
 
       const chatPreviews: ChatPreview[] = apiPartners.map((partner) => {
         const timeAgo = getTimeAgo(partner.matched_at);
@@ -279,13 +294,14 @@ export default function ChatScreen() {
           isLastMessageFromMe =
             partner.last_message.sender_id === currentUserId;
 
+          // Les messages non lus sont ceux reçus (pas envoyés par moi)
           if (!isLastMessageFromMe) {
             unreadCount = partner.unread_count || 0;
           }
           isNewPartner = false;
         } else {
           isNewPartner = true;
-          unreadCount = 1;
+          unreadCount = 1; // Nouveau partenaire = 1 message non lu virtuel
         }
 
         return {
@@ -306,12 +322,15 @@ export default function ChatScreen() {
       });
 
       setPartners(chatPreviews);
+
+      // IMPORTANT: Rafraîchir le badge global après chargement
+      await refreshUnreadCount();
     } catch (error) {
       console.error("Erreur chargement partenaires:", error);
     } finally {
       setLoading(false);
     }
-  }, [currentUserId, getTimeAgo]);
+  }, [currentUserId, getTimeAgo, refreshUnreadCount]);
 
   // Mark partner as viewed
   const markPartnerAsViewed = useCallback(
@@ -332,29 +351,71 @@ export default function ChatScreen() {
     [viewedPartners]
   );
 
-  // Mark conversation as read
-  const markConversationAsRead = useCallback(async (matchId: number) => {
-    try {
-      const token = await AsyncStorage.getItem("token");
-      if (!token) return;
+  // Mark conversation as read - VERSION AVEC CONTEXTE
+  const markConversationAsRead = useCallback(
+    async (matchId: number) => {
+      try {
+        console.log("🔄 Début markConversationAsRead", { matchId });
 
-      setPartners((prevPartners) =>
-        prevPartners.map((partner) =>
-          partner.matchId === matchId ? { ...partner, unreadCount: 0 } : partner
-        )
-      );
-
-      await axios.post(
-        `http://localhost:8000/api/matches/${matchId}/mark-read`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
+        const token = await AsyncStorage.getItem("token");
+        if (!token) {
+          console.error("❌ Pas de token trouvé");
+          return;
         }
-      );
-    } catch (error) {
-      console.error("Erreur marquage conversation lue:", error);
-    }
-  }, []);
+
+        // Trouver le partenaire concerné et son nombre de messages non lus
+        const partnerToUpdate = partners.find((p) => p.matchId === matchId);
+        const unreadCountToRemove = partnerToUpdate?.unreadCount || 0;
+
+        console.log("📊 Messages non lus à supprimer:", {
+          partner: partnerToUpdate?.name,
+          unreadCount: unreadCountToRemove,
+        });
+
+        // Mise à jour optimiste immédiate de l'UI locale
+        if (unreadCountToRemove > 0) {
+          setPartners((prevPartners) =>
+            prevPartners.map((partner) =>
+              partner.matchId === matchId
+                ? { ...partner, unreadCount: 0 }
+                : partner
+            )
+          );
+        }
+
+        // Appel API pour marquer comme lu
+        const response = await axios.post(
+          `http://localhost:8000/api/matches/${matchId}/mark-read`,
+          {},
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        console.log("✅ Réponse API markAsRead:", response.data);
+
+        // IMPORTANT: Rafraîchir le badge global depuis l'API
+        // Ceci va recharger le total depuis le serveur et mettre à jour le badge
+        await refreshUnreadCount();
+      } catch (error) {
+        if (error instanceof Error) {
+          console.error("❌ Erreur markConversationAsRead:", {
+            error: error.message,
+            matchId,
+          });
+        } else {
+          console.error("❌ Erreur markConversationAsRead:", {
+            error,
+            matchId,
+          });
+        }
+
+        // En cas d'erreur, recharger les données pour resynchroniser
+        await loadPartners();
+      }
+    },
+    [partners, refreshUnreadCount, loadPartners]
+  );
 
   // Refresh
   const onRefresh = useCallback(async () => {
@@ -365,10 +426,14 @@ export default function ChatScreen() {
 
   // Navigation handlers
   const handlePartnerPress = useCallback(
-    (item: ChatPreview) => {
-      markPartnerAsViewed(item.userId);
-      markConversationAsRead(item.matchId);
+    async (item: ChatPreview) => {
+      // Marquer comme vu
+      await markPartnerAsViewed(item.userId);
 
+      // Marquer les messages comme lus
+      await markConversationAsRead(item.matchId);
+
+      // Naviguer
       router.push({
         pathname: "/chat/[id]",
         params: {
@@ -383,9 +448,11 @@ export default function ChatScreen() {
   );
 
   const handleChatPress = useCallback(
-    (item: ChatPreview) => {
-      markConversationAsRead(item.matchId);
+    async (item: ChatPreview) => {
+      // Marquer d'abord comme lu
+      await markConversationAsRead(item.matchId);
 
+      // Puis naviguer
       router.push({
         pathname: "/chat/[id]",
         params: {
@@ -401,10 +468,31 @@ export default function ChatScreen() {
 
   // Initial load
   useEffect(() => {
-    loadCurrentUser();
-    loadViewedPartners();
-    loadPartners();
-  }, [loadCurrentUser, loadViewedPartners, loadPartners]);
+    const init = async () => {
+      await loadCurrentUser();
+      await loadViewedPartners();
+      await loadPartners();
+    };
+    init();
+  }, []);
+
+  // Gérer le retour au premier plan de l'app
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        console.log("App revenue au premier plan, rechargement...");
+        loadPartners();
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [loadPartners]);
 
   // Computed values
   const { newPartners, conversations, filteredConversations, displayPartners } =
@@ -435,6 +523,14 @@ export default function ChatScreen() {
         displayPartners,
       };
     }, [partners, searchQuery]);
+
+  // Calculer le total local pour debug
+  const getTotalUnreadCount = useCallback(() => {
+    return partners.reduce(
+      (sum, partner) => sum + (partner.unreadCount || 0),
+      0
+    );
+  }, [partners]);
 
   // Render functions
   const renderNewPartnerItem = ({
@@ -494,9 +590,38 @@ export default function ChatScreen() {
             <Text style={styles.logoText}>Takt</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.headerRight}>
-          <Ionicons name="shield-checkmark" size={24} color={COLORS.textGray} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.debugButton}
+            onPress={async () => {
+              const total = getTotalUnreadCount();
+              console.log("🔍 DEBUG - Total messages non lus (local):", total);
+              console.log("🔍 DEBUG - Détail par conversation:");
+              partners.forEach((p) => {
+                if (p.unreadCount) {
+                  console.log(`  - ${p.name}: ${p.unreadCount} non lus`);
+                }
+              });
+
+              // Forcer un refresh du badge global
+              await refreshUnreadCount();
+
+              Alert.alert(
+                "Debug Info",
+                `Total local: ${total}\n\nLe badge a été rafraîchi depuis le serveur.\nVoir la console pour le détail.`
+              );
+            }}
+          >
+            <Ionicons name="refresh" size={20} color={COLORS.textGray} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.shieldButton}>
+            <Ionicons
+              name="shield-checkmark"
+              size={24}
+              color={COLORS.textGray}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Search Bar */}
@@ -654,6 +779,14 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  debugButton: {
+    padding: 8,
+  },
+  shieldButton: {
     padding: 8,
   },
   searchContainer: {
