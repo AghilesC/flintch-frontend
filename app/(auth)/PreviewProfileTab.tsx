@@ -23,7 +23,7 @@ import Animated, {
 
 const { height, width } = Dimensions.get("window");
 const HEADER_HEIGHT = height * 0.9;
-const CARD_HEIGHT = height * 0.85;
+const CARD_HEIGHT = height * 0.45;
 
 // ✨ COULEURS ULTRA MODERNES
 const COLORS = {
@@ -106,6 +106,23 @@ interface PreviewProfileTabProps {
   niveau: string;
 }
 
+// ✨ SYNCHRONISATION MILLIMÉTRIQUE - POINT ORANGE = CARD AU CENTRE EXACT
+const getCurrentSection = (scrollValue: number) => {
+  "worklet";
+
+  // Section Photos active quand aucune card n'est encore centrée
+  if (scrollValue < HEADER_HEIGHT - (height - CARD_HEIGHT) / 2) {
+    return 0;
+  }
+
+  // Calcul exact : quel cardIndex est actuellement centré ?
+  const cardIndex = Math.round(
+    (scrollValue - HEADER_HEIGHT + (height - CARD_HEIGHT) / 2) / CARD_HEIGHT
+  );
+
+  return Math.max(0, cardIndex + 1); // +1 car index 0 = Photos
+};
+
 // ✨ PROGRESS DOT ULTRA MAGIQUE
 const MagicProgressDot = React.memo(
   ({
@@ -119,12 +136,8 @@ const MagicProgressDot = React.memo(
     totalSections: number;
     sectionNames: string[];
   }) => {
-    const sectionOffset = HEADER_HEIGHT + index * CARD_HEIGHT;
-
     const dotStyle = useAnimatedStyle(() => {
-      const currentSection = Math.round(
-        (scrollY.value - HEADER_HEIGHT + CARD_HEIGHT / 2) / CARD_HEIGHT
-      );
+      const currentSection = getCurrentSection(scrollY.value);
       const isActive = currentSection === index;
       const isPassed = currentSection > index;
       const scale = isActive ? withSpring(1.4) : withSpring(isPassed ? 1.2 : 1);
@@ -135,31 +148,18 @@ const MagicProgressDot = React.memo(
     });
 
     const fillStyle = useAnimatedStyle(() => {
-      const currentSection = Math.round(
-        (scrollY.value - HEADER_HEIGHT + CARD_HEIGHT / 2) / CARD_HEIGHT
-      );
+      const currentSection = getCurrentSection(scrollY.value);
       const isActive = currentSection === index;
       const isPassed = currentSection > index;
 
-      const fillProgress = isPassed
-        ? 1
-        : interpolate(
-            scrollY.value,
-            [sectionOffset - CARD_HEIGHT / 3, sectionOffset + CARD_HEIGHT / 3],
-            [0, 1],
-            Extrapolate.CLAMP
-          );
-
       return {
-        width: `${fillProgress * 100}%`,
+        width: isPassed || isActive ? "100%" : "0%",
         opacity: withTiming(isActive || isPassed ? 1 : 0.3, { duration: 300 }),
       };
     });
 
     const glowStyle = useAnimatedStyle(() => {
-      const currentSection = Math.round(
-        (scrollY.value - HEADER_HEIGHT + CARD_HEIGHT / 2) / CARD_HEIGHT
-      );
+      const currentSection = getCurrentSection(scrollY.value);
       const isActive = currentSection === index;
 
       return {
@@ -169,9 +169,7 @@ const MagicProgressDot = React.memo(
     });
 
     const labelStyle = useAnimatedStyle(() => {
-      const currentSection = Math.round(
-        (scrollY.value - HEADER_HEIGHT + CARD_HEIGHT / 2) / CARD_HEIGHT
-      );
+      const currentSection = getCurrentSection(scrollY.value);
       const isActive = currentSection === index;
 
       return {
@@ -214,12 +212,19 @@ const ProgressIndicator = React.memo(
     sectionNames: string[];
   }) => {
     const indicatorStyle = useAnimatedStyle(() => {
-      const progress = interpolate(
-        scrollY.value,
-        [0, (totalSections - 1) * CARD_HEIGHT + HEADER_HEIGHT],
-        [0, 1],
-        Extrapolate.CLAMP
-      );
+      // Progression fluide basée sur la position exacte de centrage
+      const maxSection = totalSections - 1;
+
+      // Calcul de la section brute (non arrondie) pour une progression fluide
+      let rawSection = 0;
+      if (scrollY.value >= HEADER_HEIGHT - (height - CARD_HEIGHT) / 2) {
+        const cardIndex =
+          (scrollY.value - HEADER_HEIGHT + (height - CARD_HEIGHT) / 2) /
+          CARD_HEIGHT;
+        rawSection = cardIndex + 1;
+      }
+
+      const progress = Math.max(0, Math.min(1, rawSection / maxSection));
 
       return {
         height: `${progress * 100}%`,
@@ -303,7 +308,6 @@ const FloatingParticle = React.memo(({ delay = 0 }: { delay?: number }) => {
   );
 });
 
-// ✨ SECTION CARD ULTRA IMMERSIVE
 const ImmersiveCard = React.memo(
   ({
     children,
@@ -320,116 +324,61 @@ const ImmersiveCard = React.memo(
     icon: string;
     totalSections: number;
   }) => {
-    const cardOffset = HEADER_HEIGHT + index * CARD_HEIGHT;
+    // Position EXACTE où cette card est parfaitement centrée sur l'écran
+    const cardIndex = index - 1; // Car index 0 = Photos
+    // cardOffset = position de scroll où le centre de la card = centre de l'écran
+    const cardOffset =
+      HEADER_HEIGHT + cardIndex * CARD_HEIGHT - (height - CARD_HEIGHT) / 2;
 
     const cardStyle = useAnimatedStyle(() => {
-      const inputRange = [
-        cardOffset - CARD_HEIGHT,
-        cardOffset,
-        cardOffset + CARD_HEIGHT * 0.7,
-        cardOffset + CARD_HEIGHT,
-      ];
+      // Points de contrôle ultra-précis pour le centrage parfait
+      const perfectCenter = cardOffset; // Position scroll où la card est EXACTEMENT centrée
+      const beforeCenter = perfectCenter - CARD_HEIGHT * 0.8;
+      const afterCenter = perfectCenter + CARD_HEIGHT * 0.8;
 
       const translateY = interpolate(
         scrollY.value,
-        inputRange,
-        [CARD_HEIGHT * 0.3, 0, 0, -CARD_HEIGHT * 0.3],
+        [beforeCenter, perfectCenter, afterCenter],
+        [CARD_HEIGHT * 0.15, 0, -CARD_HEIGHT * 0.15],
         Extrapolate.CLAMP
       );
 
       const scale = interpolate(
         scrollY.value,
         [
-          cardOffset - CARD_HEIGHT * 0.5,
-          cardOffset,
-          cardOffset + CARD_HEIGHT * 0.5,
+          perfectCenter - CARD_HEIGHT * 0.5,
+          perfectCenter,
+          perfectCenter + CARD_HEIGHT * 0.5,
         ],
-        [0.85, 1, 0.85],
+        [0.9, 1, 0.9],
         Extrapolate.CLAMP
       );
 
       const opacity = interpolate(
         scrollY.value,
         [
-          cardOffset - CARD_HEIGHT,
-          cardOffset - CARD_HEIGHT * 0.3,
-          cardOffset + CARD_HEIGHT * 0.3,
-          cardOffset + CARD_HEIGHT,
+          beforeCenter,
+          perfectCenter - CARD_HEIGHT * 0.2,
+          perfectCenter + CARD_HEIGHT * 0.2,
+          afterCenter,
         ],
-        [0, 1, 1, 0],
-        Extrapolate.CLAMP
-      );
-
-      const rotateZ = interpolate(
-        scrollY.value,
-        [
-          cardOffset - CARD_HEIGHT * 0.2,
-          cardOffset,
-          cardOffset + CARD_HEIGHT * 0.2,
-        ],
-        [-2, 0, 2],
-        Extrapolate.CLAMP
-      );
-
-      return {
-        transform: [{ translateY }, { scale }, { rotateZ: `${rotateZ}deg` }],
-        opacity,
-      };
-    });
-
-    const headerStyle = useAnimatedStyle(() => {
-      const translateY = interpolate(
-        scrollY.value,
-        [cardOffset - CARD_HEIGHT * 0.2, cardOffset],
-        [50, 0],
-        Extrapolate.CLAMP
-      );
-
-      const scale = interpolate(
-        scrollY.value,
-        [cardOffset - CARD_HEIGHT * 0.1, cardOffset + CARD_HEIGHT * 0.1],
-        [0.9, 1],
+        [0.3, 1, 1, 0.3],
         Extrapolate.CLAMP
       );
 
       return {
         transform: [{ translateY }, { scale }],
-      };
-    });
-
-    const contentStyle = useAnimatedStyle(() => {
-      const translateY = interpolate(
-        scrollY.value,
-        [cardOffset - CARD_HEIGHT * 0.1, cardOffset + CARD_HEIGHT * 0.1],
-        [30, 0],
-        Extrapolate.CLAMP
-      );
-
-      const translateX = interpolate(
-        scrollY.value,
-        [
-          cardOffset - CARD_HEIGHT * 0.05,
-          cardOffset,
-          cardOffset + CARD_HEIGHT * 0.05,
-        ],
-        [-10, 0, 10],
-        Extrapolate.CLAMP
-      );
-
-      return {
-        transform: [{ translateY }, { translateX }],
+        opacity,
       };
     });
 
     const glowStyle = useAnimatedStyle(() => {
-      const currentSection = Math.round(
-        (scrollY.value - HEADER_HEIGHT + CARD_HEIGHT / 2) / CARD_HEIGHT
-      );
+      const currentSection = getCurrentSection(scrollY.value);
       const isActive = currentSection === index;
 
       return {
-        shadowOpacity: withTiming(isActive ? 0.4 : 0.2, { duration: 500 }),
-        shadowRadius: withTiming(isActive ? 50 : 30, { duration: 500 }),
+        shadowOpacity: withTiming(isActive ? 0.6 : 0.2, { duration: 300 }),
+        shadowRadius: withTiming(isActive ? 40 : 20, { duration: 300 }),
       };
     });
 
@@ -463,13 +412,13 @@ const ImmersiveCard = React.memo(
               />
             </View>
 
-            <Animated.View style={[styles.cardMagicHeader, headerStyle]}>
+            <View style={styles.cardMagicHeader}>
               <View style={styles.magicIconContainer}>
                 <LinearGradient
                   colors={[COLORS.primary, COLORS.primaryLight]}
                   style={styles.iconGradient}
                 >
-                  <Ionicons name={icon as any} size={28} color={COLORS.white} />
+                  <Ionicons name={icon as any} size={24} color={COLORS.white} />
                 </LinearGradient>
 
                 <View style={styles.iconPulse}>
@@ -483,18 +432,10 @@ const ImmersiveCard = React.memo(
               <View style={styles.titleContainer}>
                 <Text style={styles.cardMagicTitle}>{title}</Text>
                 <View style={styles.titleUnderline} />
-
-                <View style={styles.titleDecoration}>
-                  <View style={styles.decorativeDot} />
-                  <View style={styles.decorativeDot} />
-                  <View style={styles.decorativeDot} />
-                </View>
               </View>
-            </Animated.View>
+            </View>
 
-            <Animated.View style={[styles.cardContent, contentStyle]}>
-              {children}
-            </Animated.View>
+            <View style={styles.cardContent}>{children}</View>
           </LinearGradient>
         </Animated.View>
       </Animated.View>
@@ -537,15 +478,16 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
       );
     }, [goalsArray]);
 
+    // ✨ AJOUT DE LA SECTION PHOTOS
     const sectionNames = useMemo(() => {
-      const names = ["Je recherche", "À propos", "Essentiels"];
+      const names = ["Photos", "Je recherche", "À propos", "Essentiels"];
       if (goalsArray.length > 0) names.push("Objectifs");
       if (sportsArray.length > 0) names.push("Sports");
       return names;
     }, [goalsArray.length, sportsArray.length]);
 
     const totalSections = useMemo(() => {
-      let count = 3; // "Je recherche", "À propos", "Les essentiels"
+      let count = 4; // "Photos", "Je recherche", "À propos", "Les essentiels"
       if (goalsArray.length > 0) count += 1;
       if (sportsArray.length > 0) count += 1;
       return count;
@@ -558,7 +500,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
       setCurrentPhotoIndex(0);
     }, [user?.photos]);
 
-    // ✨ SCROLL HANDLER ULTRA INTELLIGENT
+    // ✨ SCROLL HANDLER ULTRA INTELLIGENT - PARFAITEMENT SYNCHRONISÉ
     const scrollHandler = useAnimatedScrollHandler({
       onScroll: (event) => {
         scrollY.value = event.contentOffset.y;
@@ -568,10 +510,8 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
         runOnJS(setIsPhotoNavigationActive)(photoNavShouldBeActive);
 
-        const newSection = Math.round(
-          (event.contentOffset.y - HEADER_HEIGHT + CARD_HEIGHT / 2) /
-            CARD_HEIGHT
-        );
+        // Utilisation de la même logique que partout ailleurs
+        const newSection = getCurrentSection(event.contentOffset.y);
         const clampedSection = Math.max(
           0,
           Math.min(newSection, totalSections - 1)
@@ -646,10 +586,9 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
     return (
       <View style={styles.container}>
-        {/* ✨ ZONES TACTILES PHOTO AU NIVEAU ROOT */}
+        {/* ✅ NAVIGATION PHOTO DISCRÈTE PAR TAP */}
         {userPhotos.length > 1 && isPhotoNavigationActive && (
           <>
-            {/* Zone gauche - photo précédente */}
             <TouchableOpacity
               style={{
                 position: "absolute",
@@ -658,23 +597,15 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                 width: "35%",
                 height: HEADER_HEIGHT * 0.75,
                 zIndex: 99998,
-                justifyContent: "center",
-                alignItems: "flex-start",
-                paddingLeft: 20,
               }}
               onPress={() => {
                 setCurrentPhotoIndex((prev) =>
                   prev > 0 ? prev - 1 : userPhotos.length - 1
                 );
               }}
-              activeOpacity={0.7}
-            >
-              <View style={styles.photoNavIndicator}>
-                <Ionicons name="chevron-back" size={24} color={COLORS.white} />
-              </View>
-            </TouchableOpacity>
+              activeOpacity={1}
+            />
 
-            {/* Zone droite - photo suivante */}
             <TouchableOpacity
               style={{
                 position: "absolute",
@@ -683,25 +614,14 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                 width: "35%",
                 height: HEADER_HEIGHT * 0.75,
                 zIndex: 99998,
-                justifyContent: "center",
-                alignItems: "flex-end",
-                paddingRight: 20,
               }}
               onPress={() => {
                 setCurrentPhotoIndex((prev) =>
                   prev < userPhotos.length - 1 ? prev + 1 : 0
                 );
               }}
-              activeOpacity={0.7}
-            >
-              <View style={styles.photoNavIndicator}>
-                <Ionicons
-                  name="chevron-forward"
-                  size={24}
-                  color={COLORS.white}
-                />
-              </View>
-            </TouchableOpacity>
+              activeOpacity={1}
+            />
           </>
         )}
 
@@ -722,7 +642,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                 resizeMode="cover"
               />
 
-              {/* INDICATEURS DE PHOTOS ULTRA MODERNES */}
               {userPhotos.length > 1 && (
                 <View style={styles.photoIndicators}>
                   {userPhotos.map((_: string, index: number) => (
@@ -744,15 +663,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                   ))}
                 </View>
               )}
-
-              {/* Indicateur d'état navigation - centré au milieu */}
-              {!isPhotoNavigationActive && userPhotos.length > 1 && (
-                <View style={styles.navigationStatusIndicator}>
-                  <Text style={styles.navigationStatusText}>
-                    ⬆️ Remontez pour changer de photo
-                  </Text>
-                </View>
-              )}
             </>
           ) : (
             <View style={styles.placeholderImage}>
@@ -766,7 +676,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             </View>
           )}
 
-          {/* OVERLAY MAGIQUE */}
           <Animated.View style={[styles.overlay, overlayStyle]}>
             <LinearGradient
               colors={[
@@ -779,7 +688,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             />
           </Animated.View>
 
-          {/* NOM FLOTTANT MAGIQUE */}
           <Animated.View style={[styles.nameContainer, nameStyle]}>
             <Text style={styles.userName}>
               {user?.name
@@ -797,10 +705,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
         {/* ✨ CONTENT SCROLLABLE ULTRA IMMERSIF */}
         <Animated.ScrollView
           style={styles.scrollView}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { height: HEADER_HEIGHT + totalSections * CARD_HEIGHT + 100 },
-          ]}
+          contentContainerStyle={styles.scrollContent}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
@@ -812,7 +717,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
           {/* CARD 1: JE RECHERCHE */}
           <ImmersiveCard
-            index={0}
+            index={1}
             scrollY={scrollY}
             title="Je recherche"
             icon="eye-outline"
@@ -830,7 +735,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
           {/* CARD 2: À PROPOS */}
           <ImmersiveCard
-            index={1}
+            index={2}
             scrollY={scrollY}
             title="À propos de moi"
             icon="chatbubble-outline"
@@ -865,7 +770,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
           {/* CARD 3: ESSENTIELS */}
           <ImmersiveCard
-            index={2}
+            index={3}
             scrollY={scrollY}
             title="Les essentiels"
             icon="flash-outline"
@@ -876,7 +781,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                 <View style={styles.essentialIcon}>
                   <Ionicons
                     name="location-outline"
-                    size={20}
+                    size={18}
                     color={COLORS.primary}
                   />
                 </View>
@@ -886,7 +791,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                 <View style={styles.essentialIcon}>
                   <Ionicons
                     name="fitness-outline"
-                    size={20}
+                    size={18}
                     color={COLORS.primary}
                   />
                 </View>
@@ -897,7 +802,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                   <View style={styles.essentialIcon}>
                     <Ionicons
                       name="trending-up-outline"
-                      size={20}
+                      size={18}
                       color={COLORS.primary}
                     />
                   </View>
@@ -909,10 +814,10 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             </View>
           </ImmersiveCard>
 
-          {/* CARD 4: OBJECTIFS (conditionnelle) */}
+          {/* CARD 4: OBJECTIFS */}
           {goalsArray.length > 0 && (
             <ImmersiveCard
-              index={3}
+              index={4}
               scrollY={scrollY}
               title="Mes objectifs"
               icon="target-outline"
@@ -941,10 +846,10 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             </ImmersiveCard>
           )}
 
-          {/* CARD 5: SPORTS (conditionnelle) */}
+          {/* CARD 5: SPORTS */}
           {sportsArray.length > 0 && (
             <ImmersiveCard
-              index={goalsArray.length > 0 ? 4 : 3}
+              index={goalsArray.length > 0 ? 5 : 4}
               scrollY={scrollY}
               title="Mes sports"
               icon="basketball-outline"
@@ -1114,21 +1019,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // ✨ NAVIGATION PHOTOS
-  photoNavIndicator: {
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    borderRadius: 25,
-    padding: 12,
-    opacity: 0.8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
-  },
-
   // ✨ INDICATEURS ULTRA MODERNES
   photoIndicators: {
     position: "absolute",
@@ -1145,34 +1035,6 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: COLORS.white,
-  },
-
-  // Indicateur d'état navigation - centré au milieu de la photo
-  navigationStatusIndicator: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    marginTop: -25, // La moitié de la hauteur approximative du composant
-    marginLeft: -120, // La moitié de la largeur (240px / 2)
-    backgroundColor: "rgba(0, 0, 0, 0.85)",
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.5)",
-    width: 240,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.6,
-    shadowRadius: 15,
-    elevation: 10,
-  },
-  navigationStatusText: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: "700",
-    textAlign: "center",
-    letterSpacing: 0.5,
   },
 
   // Overlay magique
@@ -1232,6 +1094,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
+    paddingRight: 50,
+    paddingBottom: 200,
   },
   headerSpacer: {
     height: HEADER_HEIGHT,
@@ -1268,19 +1132,19 @@ const styles = StyleSheet.create({
   },
   cardBackground: {
     flex: 1,
-    borderRadius: 32,
+    borderRadius: 28,
     overflow: "hidden",
     shadowColor: "rgba(255, 81, 53, 0.25)",
-    shadowOffset: { width: 0, height: 20 },
+    shadowOffset: { width: 0, height: 15 },
     shadowOpacity: 0.25,
-    shadowRadius: 40,
-    elevation: 20,
+    shadowRadius: 30,
+    elevation: 15,
     position: "relative",
     zIndex: 2,
   },
   cardGradient: {
     flex: 1,
-    padding: 32,
+    padding: 24,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.5)",
     position: "relative",
@@ -1302,21 +1166,21 @@ const styles = StyleSheet.create({
   cardMagicHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 32,
-    gap: 20,
+    marginBottom: 20,
+    gap: 16,
     zIndex: 3,
     position: "relative",
   },
   magicIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     overflow: "hidden",
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowRadius: 15,
+    elevation: 10,
     position: "relative",
   },
   iconGradient: {
@@ -1326,45 +1190,34 @@ const styles = StyleSheet.create({
   },
   iconPulse: {
     position: "absolute",
-    top: -10,
-    left: -10,
-    right: -10,
-    bottom: -10,
-    borderRadius: 30,
+    top: -8,
+    left: -8,
+    right: -8,
+    bottom: -8,
+    borderRadius: 24,
     zIndex: -1,
   },
   pulseGradient: {
     flex: 1,
-    borderRadius: 30,
+    borderRadius: 24,
   },
   titleContainer: {
     flex: 1,
     position: "relative",
   },
   cardMagicTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "800",
     color: COLORS.textPrimary,
     letterSpacing: -0.5,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   titleUnderline: {
-    width: 60,
-    height: 4,
+    width: 50,
+    height: 3,
     backgroundColor: COLORS.primary,
     borderRadius: 2,
-    marginBottom: 8,
-  },
-  titleDecoration: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  decorativeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.primaryLight,
-    opacity: 0.6,
+    marginBottom: 6,
   },
 
   // Contenu des cartes
@@ -1378,26 +1231,26 @@ const styles = StyleSheet.create({
   // "Je recherche"
   rechercheContainer: {
     alignItems: "center",
-    paddingVertical: 20,
+    paddingVertical: 16,
   },
   rechercheText: {
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: "700",
     color: COLORS.textPrimary,
     textAlign: "center",
-    lineHeight: 40,
-    marginBottom: 40,
+    lineHeight: 32,
+    marginBottom: 24,
     letterSpacing: -0.3,
   },
   rechercheDecoration: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: 12,
   },
   decorationDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: COLORS.primary,
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 2 },
@@ -1405,8 +1258,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   decorationLine: {
-    width: 100,
-    height: 3,
+    width: 80,
+    height: 2,
     backgroundColor: COLORS.primary,
     borderRadius: 2,
     shadowColor: COLORS.primary,
@@ -1418,11 +1271,11 @@ const styles = StyleSheet.create({
   // "À propos"
   aproposContainer: {
     justifyContent: "center",
-    paddingVertical: 20,
+    paddingVertical: 16,
   },
   aproposText: {
-    fontSize: 22,
-    lineHeight: 36,
+    fontSize: 18,
+    lineHeight: 28,
     color: COLORS.textSecondary,
     textAlign: "center",
     letterSpacing: -0.2,
@@ -1438,33 +1291,33 @@ const styles = StyleSheet.create({
   moreText: {
     color: COLORS.gray,
     fontStyle: "italic",
-    fontSize: 18,
+    fontSize: 16,
   },
 
   // "Essentiels"
   essentielsGrid: {
-    gap: 24,
+    gap: 16,
   },
   essentialTag: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(255, 81, 53, 0.05)",
-    paddingHorizontal: 28,
-    paddingVertical: 20,
-    borderRadius: 28,
-    gap: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 24,
+    gap: 16,
     borderWidth: 1.5,
     borderColor: "rgba(255, 81, 53, 0.2)",
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
-    shadowRadius: 12,
+    shadowRadius: 10,
     elevation: 3,
   },
   essentialIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     backgroundColor: "rgba(255, 81, 53, 0.15)",
     justifyContent: "center",
     alignItems: "center",
@@ -1474,7 +1327,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   essentialText: {
-    fontSize: 19,
+    fontSize: 16,
     fontWeight: "700",
     color: COLORS.textPrimary,
     flex: 1,
@@ -1483,93 +1336,94 @@ const styles = StyleSheet.create({
 
   // Objectifs
   objectifsContainer: {
-    gap: 28,
+    gap: 16,
   },
   objectifItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 24,
+    gap: 16,
     backgroundColor: "rgba(255, 247, 245, 0.8)",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(255, 81, 53, 0.1)",
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
-    shadowRadius: 10,
+    shadowRadius: 8,
   },
   objectifIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     backgroundColor: COLORS.white,
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 2,
     borderColor: "rgba(255, 81, 53, 0.2)",
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.15,
-    shadowRadius: 8,
+    shadowRadius: 6,
   },
   objectifEmoji: {
-    fontSize: 26,
+    fontSize: 22,
   },
   objectifText: {
     flex: 1,
-    fontSize: 19,
+    fontSize: 16,
     fontWeight: "700",
     color: COLORS.textPrimary,
     letterSpacing: -0.2,
   },
 
-  // Sports
+  // Sports - OPTIMISÉ AVEC 2 COLONNES
   sportsContainer: {
-    gap: 28,
+    gap: 16,
   },
   sportsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 18,
+    gap: 10,
+    justifyContent: "space-between",
   },
   sportChip: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.white,
-    paddingHorizontal: 24,
-    paddingVertical: 18,
-    borderRadius: 28,
-    gap: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 20,
+    gap: 8,
     borderWidth: 1.5,
     borderColor: "rgba(255, 81, 53, 0.15)",
-    minWidth: (width - 100) / 2,
+    width: "48%",
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.12,
-    shadowRadius: 15,
-    elevation: 6,
+    shadowRadius: 10,
+    elevation: 4,
   },
   sportEmoji: {
-    fontSize: 22,
+    fontSize: 16,
   },
   sportName: {
-    fontSize: 17,
+    fontSize: 13,
     fontWeight: "700",
     color: COLORS.textPrimary,
     flex: 1,
     letterSpacing: -0.1,
   },
   moreSports: {
-    fontSize: 17,
+    fontSize: 15,
     color: COLORS.primary,
     textAlign: "center",
     fontWeight: "600",
     backgroundColor: "rgba(255, 81, 53, 0.1)",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 18,
     overflow: "hidden",
   },
 });

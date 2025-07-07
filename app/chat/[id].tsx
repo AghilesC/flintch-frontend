@@ -605,7 +605,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
   },
   theirMessage: {
-    backgroundColor: "rgba(255, 81, 53, 0.2)",
+    backgroundColor: "#F5F6FA",
     alignSelf: "flex-start",
   },
   optimisticMessage: {
@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   sendButtonActive: {
-    backgroundColor: "rgba(255, 81, 53, 0.1)",
+    backgroundColor: "#ff513519",
   },
   introMessageContainer: {
     paddingVertical: 24,

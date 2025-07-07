@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native"; // ✅ AJOUT IMPORTANT
 import axios from "axios";
 import { useRouter } from "expo-router";
 import React, {
@@ -11,7 +12,6 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
-  Alert,
   AppState,
   Dimensions,
   FlatList,
@@ -31,7 +31,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { useNotifications } from "../contexts/NotificationContext"; // IMPORTANT: Ajoutez cette ligne
+import { useNotifications } from "../contexts/NotificationContext";
 
 const { width } = Dimensions.get("window");
 
@@ -203,7 +203,7 @@ function ChatItem({
 // Composant principal
 export default function ChatScreen() {
   const router = useRouter();
-  const { refreshUnreadCount, decrementUnreadCount } = useNotifications(); // IMPORTANT: Utiliser le contexte
+  const { refreshUnreadCount, decrementUnreadCount } = useNotifications();
   const [searchQuery, setSearchQuery] = useState("");
   const [partners, setPartners] = useState<ChatPreview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -257,80 +257,110 @@ export default function ChatScreen() {
     }
   }, []);
 
-  // Load partners
-  const loadPartners = useCallback(async () => {
-    try {
-      setLoading(true);
-      const token = await AsyncStorage.getItem("token");
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      console.log("🔄 Chargement des partenaires...");
-
-      const response = await axios.get(
-        "http://localhost:8000/api/matches?include_messages=true",
-        {
-          headers: { Authorization: `Bearer ${token}` },
+  // Load partners - VERSION ULTRA FLUIDE
+  const loadPartners = useCallback(
+    async (showLoadingSpinner = false) => {
+      try {
+        // ✅ LOADING SEULEMENT SI DEMANDÉ (premier chargement)
+        if (showLoadingSpinner) {
+          setLoading(true);
         }
+
+        const token = await AsyncStorage.getItem("token");
+        if (!token) {
+          if (showLoadingSpinner) setLoading(false);
+          return;
+        }
+
+        console.log(
+          "🔄 Chargement des partenaires...",
+          showLoadingSpinner ? "(avec loading)" : "(silencieux)"
+        );
+
+        const response = await axios.get(
+          "http://localhost:8000/api/matches?include_messages=true",
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        const apiPartners: ApiPartner[] = response.data;
+        console.log(`✅ ${apiPartners.length} partenaires chargés`);
+
+        const chatPreviews: ChatPreview[] = apiPartners.map((partner) => {
+          const timeAgo = getTimeAgo(partner.matched_at);
+
+          let lastMessage = "Vous vous êtes connectés ! Dites bonjour 👋";
+          let timestamp = timeAgo;
+          let isLastMessageFromMe = false;
+          let unreadCount = 0;
+          let isNewPartner = false;
+
+          if (partner.last_message) {
+            lastMessage = partner.last_message.content;
+            timestamp = getTimeAgo(partner.last_message.created_at);
+            isLastMessageFromMe =
+              partner.last_message.sender_id === currentUserId;
+
+            // Les messages non lus sont ceux reçus (pas envoyés par moi)
+            if (!isLastMessageFromMe) {
+              unreadCount = partner.unread_count || 0;
+            }
+            isNewPartner = false;
+          } else {
+            isNewPartner = true;
+            unreadCount = 1; // Nouveau partenaire = 1 message non lu virtuel
+          }
+
+          return {
+            id: partner.id.toString(),
+            matchId: partner.id,
+            userId: partner.user.id,
+            name: partner.user.name,
+            lastMessage,
+            timestamp,
+            avatar:
+              (partner.user.photos && partner.user.photos[0]) ||
+              "https://placekitten.com/100/100",
+            unreadCount: unreadCount > 0 ? unreadCount : undefined,
+            isOnline: Math.random() > 0.5,
+            isNewPartner,
+            isLastMessageFromMe,
+          };
+        });
+
+        setPartners(chatPreviews);
+
+        // IMPORTANT: Rafraîchir le badge global après chargement
+        await refreshUnreadCount();
+      } catch (error) {
+        console.error("Erreur chargement partenaires:", error);
+      } finally {
+        if (showLoadingSpinner) {
+          setLoading(false);
+        }
+      }
+    },
+    [currentUserId, getTimeAgo, refreshUnreadCount]
+  );
+
+  // ✅ AUTO-REFRESH ULTRA FLUIDE QUAND LA PAGE DEVIENT VISIBLE
+  useFocusEffect(
+    useCallback(() => {
+      console.log(
+        "🎯 Chat screen focused - déclenchement auto-refresh silencieux"
       );
 
-      const apiPartners: ApiPartner[] = response.data;
-      console.log(`✅ ${apiPartners.length} partenaires chargés`);
+      // Refresh automatique SILENCIEUX quand on arrive sur la page
+      if (currentUserId) {
+        loadPartners(false); // ✅ false = pas de loading spinner
+      }
 
-      const chatPreviews: ChatPreview[] = apiPartners.map((partner) => {
-        const timeAgo = getTimeAgo(partner.matched_at);
-
-        let lastMessage = "Vous vous êtes connectés ! Dites bonjour 👋";
-        let timestamp = timeAgo;
-        let isLastMessageFromMe = false;
-        let unreadCount = 0;
-        let isNewPartner = false;
-
-        if (partner.last_message) {
-          lastMessage = partner.last_message.content;
-          timestamp = getTimeAgo(partner.last_message.created_at);
-          isLastMessageFromMe =
-            partner.last_message.sender_id === currentUserId;
-
-          // Les messages non lus sont ceux reçus (pas envoyés par moi)
-          if (!isLastMessageFromMe) {
-            unreadCount = partner.unread_count || 0;
-          }
-          isNewPartner = false;
-        } else {
-          isNewPartner = true;
-          unreadCount = 1; // Nouveau partenaire = 1 message non lu virtuel
-        }
-
-        return {
-          id: partner.id.toString(),
-          matchId: partner.id,
-          userId: partner.user.id,
-          name: partner.user.name,
-          lastMessage,
-          timestamp,
-          avatar:
-            (partner.user.photos && partner.user.photos[0]) ||
-            "https://placekitten.com/100/100",
-          unreadCount: unreadCount > 0 ? unreadCount : undefined,
-          isOnline: Math.random() > 0.5,
-          isNewPartner,
-          isLastMessageFromMe,
-        };
-      });
-
-      setPartners(chatPreviews);
-
-      // IMPORTANT: Rafraîchir le badge global après chargement
-      await refreshUnreadCount();
-    } catch (error) {
-      console.error("Erreur chargement partenaires:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentUserId, getTimeAgo, refreshUnreadCount]);
+      return () => {
+        console.log("😴 Chat screen blurred");
+      };
+    }, [currentUserId, loadPartners])
+  );
 
   // Mark partner as viewed
   const markPartnerAsViewed = useCallback(
@@ -411,16 +441,16 @@ export default function ChatScreen() {
         }
 
         // En cas d'erreur, recharger les données pour resynchroniser
-        await loadPartners();
+        await loadPartners(false);
       }
     },
     [partners, refreshUnreadCount, loadPartners]
   );
 
-  // Refresh
+  // Refresh manuel avec pull-to-refresh
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadPartners();
+    await loadPartners(false); // ✅ Refresh silencieux, on utilise déjà l'indicateur refreshing
     setRefreshing(false);
   }, [loadPartners]);
 
@@ -471,7 +501,7 @@ export default function ChatScreen() {
     const init = async () => {
       await loadCurrentUser();
       await loadViewedPartners();
-      await loadPartners();
+      await loadPartners(true); // ✅ true = avec loading spinner pour le premier chargement
     };
     init();
   }, []);
@@ -483,8 +513,8 @@ export default function ChatScreen() {
         appStateRef.current.match(/inactive|background/) &&
         nextAppState === "active"
       ) {
-        console.log("App revenue au premier plan, rechargement...");
-        loadPartners();
+        console.log("App revenue au premier plan, rechargement silencieux...");
+        loadPartners(false); // ✅ Refresh silencieux
       }
       appStateRef.current = nextAppState;
     });
@@ -594,22 +624,19 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={styles.debugButton}
             onPress={async () => {
-              const total = getTotalUnreadCount();
-              console.log("🔍 DEBUG - Total messages non lus (local):", total);
-              console.log("🔍 DEBUG - Détail par conversation:");
-              partners.forEach((p) => {
-                if (p.unreadCount) {
-                  console.log(`  - ${p.name}: ${p.unreadCount} non lus`);
-                }
-              });
+              console.log("🔄 Refresh manuel des matches déclenché");
 
-              // Forcer un refresh du badge global
-              await refreshUnreadCount();
+              try {
+                // Déclencher le refresh complet avec loading
+                setRefreshing(true);
+                await loadPartners(false); // ✅ On utilise refreshing au lieu du loading global
+                setRefreshing(false);
 
-              Alert.alert(
-                "Debug Info",
-                `Total local: ${total}\n\nLe badge a été rafraîchi depuis le serveur.\nVoir la console pour le détail.`
-              );
+                console.log("✅ Refresh des matches terminé");
+              } catch (error) {
+                console.error("❌ Erreur lors du refresh:", error);
+                setRefreshing(false);
+              }
             }}
           >
             <Ionicons name="refresh" size={20} color={COLORS.textGray} />
