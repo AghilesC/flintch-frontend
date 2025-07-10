@@ -13,6 +13,7 @@ import {
   Platform,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -30,6 +31,7 @@ const LoginScreen = () => {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
 
   useEffect(() => {
     const checkToken = async () => {
@@ -109,6 +111,29 @@ const LoginScreen = () => {
     }
   };
 
+  const handleTestLogin = () => {
+    if (!testEmail.trim()) {
+      Alert.alert("Erreur", "Veuillez saisir une adresse email");
+      return;
+    }
+
+    if (!testEmail.includes("@")) {
+      Alert.alert("Erreur", "Veuillez saisir une adresse email valide");
+      return;
+    }
+
+    // Redirection directe vers register avec l'email de test
+    router.replace({
+      pathname: "/(auth)/register",
+      params: {
+        name: "",
+        email: testEmail,
+        provider: "test",
+        provider_token: "",
+      },
+    });
+  };
+
   if (checking) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
@@ -128,6 +153,35 @@ const LoginScreen = () => {
         <View style={styles.content}>
           <Text style={styles.logo}>Flintch</Text>
           <Text style={styles.slogan}>Sweat & Connect</Text>
+
+          {/* Section de test */}
+          <View style={styles.testSection}>
+            <Text style={styles.testTitle}>Test - Connexion rapide</Text>
+            <TextInput
+              style={styles.emailInput}
+              placeholder="Votre adresse email"
+              placeholderTextColor="#999"
+              value={testEmail}
+              onChangeText={setTestEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity
+              style={styles.btnTest}
+              onPress={handleTestLogin}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.btnTestText}>Continuer avec email</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Séparateur */}
+          <View style={styles.separator}>
+            <View style={styles.separatorLine} />
+            <Text style={styles.separatorText}>OU</Text>
+            <View style={styles.separatorLine} />
+          </View>
 
           <TouchableOpacity
             style={styles.btnGoogle}
@@ -192,6 +246,60 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 40,
     letterSpacing: 1,
+  },
+  testSection: {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  testTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 15,
+    opacity: 0.9,
+  },
+  emailInput: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#ddd",
+  },
+  btnTest: {
+    backgroundColor: "#FF5135",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  btnTestText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  separator: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 20,
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+  },
+  separatorText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    marginHorizontal: 15,
+    opacity: 0.7,
   },
   btnGoogle: {
     backgroundColor: "#fff",

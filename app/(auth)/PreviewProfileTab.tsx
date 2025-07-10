@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
   Image,
@@ -17,6 +17,7 @@ import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -28,7 +29,7 @@ const CARD_HEIGHT = height * 0.45;
 // ✨ COULEURS ULTRA MODERNES
 const COLORS = {
   primary: "#FF5135",
-  primaryLight: "#FF7A5C",
+  primaryLight: "#FFA958",
   white: "#FFFFFF",
   lightGray: "#F8F9FA",
   softGray: "#F1F3F4",
@@ -36,6 +37,13 @@ const COLORS = {
   textPrimary: "#2D3748",
   gray: "#8E8E93",
   progressBg: "rgba(255, 255, 255, 0.3)",
+};
+
+// ✨ GRADIENT UNIFORME POUR TOUS LES ÉLÉMENTS ORANGE
+const ORANGE_GRADIENT = {
+  colors: ["#FF5135", "#FFA958"] as const, // Bas gauche vers haut droite
+  start: { x: 0, y: 1 } as const,
+  end: { x: 1, y: 0 } as const,
 };
 
 // ✅ MAPPING OBJECTIFS → RECHERCHE
@@ -104,37 +112,329 @@ interface PreviewProfileTabProps {
   sports: string[];
   objectifs: string[];
   niveau: string;
+  userSports?: string[]; // ✅ NOUVEAU: Sports de l'utilisateur connecté
 }
+
+// ✨ FONCTION POUR CALCULER LA POSITION DE SCROLL CIBLE POUR CHAQUE SECTION
+const getScrollPositionForSection = (sectionIndex: number) => {
+  if (sectionIndex === 0) {
+    return HEADER_HEIGHT / 3;
+  }
+  const cardIndex = sectionIndex - 1;
+  return HEADER_HEIGHT + cardIndex * CARD_HEIGHT - (height - CARD_HEIGHT) / 2;
+};
 
 // ✨ SYNCHRONISATION MILLIMÉTRIQUE - POINT ORANGE = CARD AU CENTRE EXACT
 const getCurrentSection = (scrollValue: number) => {
   "worklet";
-
-  // Section Photos active quand aucune card n'est encore centrée
   if (scrollValue < HEADER_HEIGHT - (height - CARD_HEIGHT) / 2) {
     return 0;
   }
-
-  // Calcul exact : quel cardIndex est actuellement centré ?
   const cardIndex = Math.round(
     (scrollValue - HEADER_HEIGHT + (height - CARD_HEIGHT) / 2) / CARD_HEIGHT
   );
-
-  return Math.max(0, cardIndex + 1); // +1 car index 0 = Photos
+  return Math.max(0, cardIndex + 1);
 };
 
-// ✨ PROGRESS DOT ULTRA MAGIQUE
+// ✨ GLASSMORPHISM ULTRA-RÉALISTE ET OPTIMISÉ
+const GlassmorphismCard = React.memo(
+  ({
+    children,
+    style = {},
+    intensity = "medium",
+    isPrimary = false,
+  }: {
+    children: React.ReactNode;
+    style?: any;
+    intensity?: "light" | "medium" | "strong";
+    isPrimary?: boolean;
+  }) => {
+    const getGlassStyle = useMemo(() => {
+      if (isPrimary) {
+        return {
+          backgroundColor: "rgba(255, 255, 255, 0.25)",
+          borderColor: "rgba(255, 255, 255, 0.4)",
+          shadowColor: "rgba(255, 255, 255, 0.8)",
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 0.6,
+          shadowRadius: 25,
+          elevation: 20,
+        };
+      }
+
+      switch (intensity) {
+        case "light":
+          return {
+            backgroundColor: "rgba(255, 255, 255, 0.03)",
+            borderColor: "rgba(255, 255, 255, 0.08)",
+            shadowColor: "rgba(255, 255, 255, 0.3)",
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: 4,
+          };
+        case "strong":
+          return {
+            backgroundColor: "rgba(255, 255, 255, 0.08)",
+            borderColor: "rgba(255, 255, 255, 0.15)",
+            shadowColor: "rgba(255, 255, 255, 0.5)",
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.4,
+            shadowRadius: 15,
+            elevation: 10,
+          };
+        default:
+          return {
+            backgroundColor: "rgba(255, 255, 255, 0.05)",
+            borderColor: "rgba(255, 255, 255, 0.12)",
+            shadowColor: "rgba(255, 255, 255, 0.4)",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 12,
+            elevation: 6,
+          };
+      }
+    }, [intensity, isPrimary]);
+
+    return (
+      <View style={[styles.glassmorphismContainer, getGlassStyle, style]}>
+        <LinearGradient
+          colors={
+            isPrimary
+              ? [
+                  "rgba(255, 255, 255, 0.15)",
+                  "rgba(255, 255, 255, 0.05)",
+                  "rgba(255, 255, 255, 0.1)",
+                ]
+              : [
+                  "rgba(255, 255, 255, 0.06)",
+                  "rgba(255, 255, 255, 0.02)",
+                  "rgba(255, 255, 255, 0.04)",
+                ]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.glassmorphismGradient}
+        />
+
+        <LinearGradient
+          colors={
+            isPrimary
+              ? [
+                  "rgba(255, 255, 255, 0.3)",
+                  "rgba(255, 255, 255, 0.1)",
+                  "transparent",
+                ]
+              : [
+                  "rgba(255, 255, 255, 0.15)",
+                  "rgba(255, 255, 255, 0.03)",
+                  "transparent",
+                ]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 0.3 }}
+          style={styles.topReflection}
+        />
+
+        <View style={styles.glassContent}>{children}</View>
+      </View>
+    );
+  }
+);
+
+// ✨ SPORT CHIP SIMPLIFIÉ - AFFICHAGE DIRECT SANS ANIMATION
+const SportChip = React.memo(
+  ({
+    sport,
+    index,
+    isCommon = false,
+  }: {
+    sport: string;
+    index: number;
+    isCommon?: boolean;
+  }) => {
+    const bounceScale = useSharedValue(1);
+    const glowIntensity = useSharedValue(0);
+
+    // ✅ FONCTIONS UTILITAIRES POUR GÉRER LES SPORTS
+    const getSportEmoji = (sport: string): string => {
+      const parts = sport.split(" ");
+      return parts[0] || "🏋️";
+    };
+
+    const getSportName = (sport: string): string => {
+      const parts = sport.split(" ");
+      return parts.slice(1).join(" ") || sport;
+    };
+
+    useEffect(() => {
+      if (isCommon) {
+        // Animation bounce TRÈS subtile uniquement pour les sports en commun
+        const animateBounce = () => {
+          bounceScale.value = withRepeat(
+            withTiming(1.015, { duration: 2000 }, () => {
+              bounceScale.value = withTiming(1, { duration: 2000 });
+            }),
+            -1,
+            false
+          );
+
+          // Glow subtile synchronisée
+          glowIntensity.value = withRepeat(
+            withTiming(0.3, { duration: 2000 }, () => {
+              glowIntensity.value = withTiming(0.1, { duration: 2000 });
+            }),
+            -1,
+            false
+          );
+        };
+
+        // Délai différent pour chaque sport pour créer un effet de vague
+        setTimeout(animateBounce, index * 600);
+      }
+    }, [isCommon, index]);
+
+    const bounceStyle = useAnimatedStyle(() => ({
+      transform: [{ scale: bounceScale.value }],
+    }));
+
+    const glowStyle = useAnimatedStyle(() => ({
+      shadowOpacity: isCommon ? glowIntensity.value : 0,
+    }));
+
+    if (isCommon) {
+      return (
+        <Animated.View style={[bounceStyle]}>
+          <Animated.View style={[styles.sportChipCommon, glowStyle]}>
+            <GlassmorphismCard
+              intensity="medium"
+              isPrimary={false}
+              style={styles.sportChipCommonContainer}
+            >
+              <LinearGradient
+                colors={ORANGE_GRADIENT.colors}
+                start={ORANGE_GRADIENT.start}
+                end={ORANGE_GRADIENT.end}
+                style={styles.sportGradientOverlay}
+              >
+                <View style={styles.sportChipContent}>
+                  <Text style={styles.sportEmoji}>{getSportEmoji(sport)}</Text>
+                  <Text style={styles.sportNameCommon} numberOfLines={1}>
+                    {getSportName(sport)}
+                  </Text>
+                </View>
+              </LinearGradient>
+            </GlassmorphismCard>
+          </Animated.View>
+        </Animated.View>
+      );
+    }
+
+    return (
+      <GlassmorphismCard
+        intensity="light"
+        isPrimary={false}
+        style={styles.sportChip}
+      >
+        <View style={styles.sportChipContent}>
+          <Text style={styles.sportEmoji}>{getSportEmoji(sport)}</Text>
+          <Text style={styles.sportName} numberOfLines={1}>
+            {getSportName(sport)}
+          </Text>
+        </View>
+      </GlassmorphismCard>
+    );
+  }
+);
+
+// ✨ PARTICULES ULTRA-OPTIMISÉES
+const OptimizedParticle = React.memo(({ delay = 0 }: { delay?: number }) => {
+  const translateY = useSharedValue(height);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    const animate = () => {
+      translateY.value = height;
+      opacity.value = 0;
+
+      translateY.value = withTiming(-50, { duration: 20000 });
+      opacity.value = withTiming(0.4, { duration: 3000 }, () => {
+        setTimeout(() => {
+          opacity.value = withTiming(0, { duration: 3000 });
+        }, 14000);
+      });
+
+      setTimeout(animate, 25000);
+    };
+
+    setTimeout(animate, delay);
+  }, []);
+
+  const particleStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View style={[styles.optimizedParticle, particleStyle]}>
+      <View style={styles.particleCore} />
+    </Animated.View>
+  );
+});
+
+// ✨ PARTICLE EFFECT COMPONENT
+const FloatingParticle = React.memo(({ delay = 0 }: { delay?: number }) => {
+  const translateY = useSharedValue(0);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    const animate = () => {
+      translateY.value = withTiming(-200, {
+        duration: 4000 + Math.random() * 2000,
+      });
+      opacity.value = withTiming(1, { duration: 1000 });
+
+      setTimeout(() => {
+        opacity.value = withTiming(0, { duration: 1000 });
+        translateY.value = 0;
+        setTimeout(animate, 1000);
+      }, 3000);
+    };
+
+    setTimeout(animate, delay);
+  }, []);
+
+  const particleStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View style={[styles.particle, particleStyle]}>
+      <LinearGradient
+        colors={ORANGE_GRADIENT.colors}
+        start={ORANGE_GRADIENT.start}
+        end={ORANGE_GRADIENT.end}
+        style={styles.particleGradient}
+      />
+    </Animated.View>
+  );
+});
+
+// ✨ PROGRESS DOT ULTRA MAGIQUE - AVEC GRADIENT UNIFORME
 const MagicProgressDot = React.memo(
   ({
     index,
     scrollY,
     totalSections,
     sectionNames,
+    onPress,
   }: {
     index: number;
     scrollY: Animated.SharedValue<number>;
     totalSections: number;
     sectionNames: string[];
+    onPress: (sectionIndex: number) => void;
   }) => {
     const dotStyle = useAnimatedStyle(() => {
       const currentSection = getCurrentSection(scrollY.value);
@@ -182,42 +482,64 @@ const MagicProgressDot = React.memo(
     });
 
     return (
-      <View style={styles.magicDotContainer}>
+      <TouchableOpacity
+        style={styles.magicDotContainer}
+        onPress={() => onPress(index)}
+        activeOpacity={0.7}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      >
         <Animated.View style={[styles.dotGlow, glowStyle]} />
         <Animated.View style={[styles.progressDot, dotStyle]}>
-          <Animated.View style={[styles.dotFill, fillStyle]} />
+          <Animated.View style={[styles.dotFill, fillStyle]}>
+            <LinearGradient
+              colors={ORANGE_GRADIENT.colors}
+              start={ORANGE_GRADIENT.start}
+              end={ORANGE_GRADIENT.end}
+              style={styles.dotFillGradient}
+            />
+          </Animated.View>
         </Animated.View>
         <Animated.View style={[styles.dotLabel, labelStyle]}>
-          <LinearGradient
-            colors={["rgba(255, 81, 53, 0.95)", "rgba(255, 122, 92, 0.95)"]}
-            style={styles.labelGradient}
+          <GlassmorphismCard
+            intensity="strong"
+            isPrimary={false}
+            style={styles.labelContainer}
           >
             <Text style={styles.labelText}>{sectionNames[index]}</Text>
-          </LinearGradient>
+          </GlassmorphismCard>
         </Animated.View>
-      </View>
+      </TouchableOpacity>
     );
   }
 );
 
-// ✨ PROGRESS INDICATOR ULTRA MAGIQUE
+// ✨ PROGRESS INDICATOR ULTRA MAGIQUE - AVEC GRADIENT UNIFORME
 const ProgressIndicator = React.memo(
   ({
     scrollY,
     totalSections,
     sectionNames,
+    onSectionPress,
   }: {
     scrollY: Animated.SharedValue<number>;
     totalSections: number;
     sectionNames: string[];
+    onSectionPress: (sectionIndex: number) => void;
   }) => {
     const indicatorStyle = useAnimatedStyle(() => {
-      // Progression fluide basée sur la position exacte de centrage
       const maxSection = totalSections - 1;
+      const transitionPoint = HEADER_HEIGHT - (height - CARD_HEIGHT) / 2;
 
-      // Calcul de la section brute (non arrondie) pour une progression fluide
       let rawSection = 0;
-      if (scrollY.value >= HEADER_HEIGHT - (height - CARD_HEIGHT) / 2) {
+
+      if (scrollY.value < transitionPoint) {
+        rawSection = interpolate(
+          scrollY.value,
+          [0, transitionPoint],
+          [0, 1],
+          Extrapolate.CLAMP
+        );
+      } else {
         const cardIndex =
           (scrollY.value - HEADER_HEIGHT + (height - CARD_HEIGHT) / 2) /
           CARD_HEIGHT;
@@ -249,7 +571,9 @@ const ProgressIndicator = React.memo(
         <Animated.View style={[styles.progressTrack, trackStyle]}>
           <Animated.View style={[styles.progressFill, indicatorStyle]}>
             <LinearGradient
-              colors={[COLORS.primary, COLORS.primaryLight, COLORS.primary]}
+              colors={ORANGE_GRADIENT.colors}
+              start={ORANGE_GRADIENT.start}
+              end={ORANGE_GRADIENT.end}
               style={styles.progressGradient}
             />
           </Animated.View>
@@ -263,6 +587,7 @@ const ProgressIndicator = React.memo(
               scrollY={scrollY}
               totalSections={totalSections}
               sectionNames={sectionNames}
+              onPress={onSectionPress}
             />
           ))}
         </View>
@@ -271,43 +596,7 @@ const ProgressIndicator = React.memo(
   }
 );
 
-// ✨ PARTICLE EFFECT COMPONENT
-const FloatingParticle = React.memo(({ delay = 0 }: { delay?: number }) => {
-  const translateY = useSharedValue(0);
-  const opacity = useSharedValue(0);
-
-  useEffect(() => {
-    const animate = () => {
-      translateY.value = withTiming(-200, {
-        duration: 4000 + Math.random() * 2000,
-      });
-      opacity.value = withTiming(1, { duration: 1000 });
-
-      setTimeout(() => {
-        opacity.value = withTiming(0, { duration: 1000 });
-        translateY.value = 0;
-        setTimeout(animate, 1000);
-      }, 3000);
-    };
-
-    setTimeout(animate, delay);
-  }, []);
-
-  const particleStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-    opacity: opacity.value,
-  }));
-
-  return (
-    <Animated.View style={[styles.particle, particleStyle]}>
-      <LinearGradient
-        colors={[COLORS.primary, "transparent"]}
-        style={styles.particleGradient}
-      />
-    </Animated.View>
-  );
-});
-
+// ✨ SECTION CARD ULTRA IMMERSIVE
 const ImmersiveCard = React.memo(
   ({
     children,
@@ -324,15 +613,12 @@ const ImmersiveCard = React.memo(
     icon: string;
     totalSections: number;
   }) => {
-    // Position EXACTE où cette card est parfaitement centrée sur l'écran
-    const cardIndex = index - 1; // Car index 0 = Photos
-    // cardOffset = position de scroll où le centre de la card = centre de l'écran
+    const cardIndex = index - 1;
     const cardOffset =
       HEADER_HEIGHT + cardIndex * CARD_HEIGHT - (height - CARD_HEIGHT) / 2;
 
     const cardStyle = useAnimatedStyle(() => {
-      // Points de contrôle ultra-précis pour le centrage parfait
-      const perfectCenter = cardOffset; // Position scroll où la card est EXACTEMENT centrée
+      const perfectCenter = cardOffset;
       const beforeCenter = perfectCenter - CARD_HEIGHT * 0.8;
       const afterCenter = perfectCenter + CARD_HEIGHT * 0.8;
 
@@ -377,8 +663,8 @@ const ImmersiveCard = React.memo(
       const isActive = currentSection === index;
 
       return {
-        shadowOpacity: withTiming(isActive ? 0.6 : 0.2, { duration: 300 }),
-        shadowRadius: withTiming(isActive ? 40 : 20, { duration: 300 }),
+        shadowOpacity: isActive ? 0.4 : 0.1,
+        shadowRadius: isActive ? 25 : 10,
       };
     });
 
@@ -387,56 +673,43 @@ const ImmersiveCard = React.memo(
         <View style={styles.particlesContainer}>
           <FloatingParticle delay={0} />
           <FloatingParticle delay={1000} />
-          <FloatingParticle delay={2000} />
         </View>
 
         <Animated.View style={[styles.cardBackground, glowStyle]}>
-          <LinearGradient
-            colors={[
-              "rgba(255, 255, 255, 0.98)",
-              "rgba(255, 255, 255, 0.9)",
-              "rgba(255, 247, 245, 0.95)",
-            ]}
-            style={styles.cardGradient}
-          >
-            <View style={styles.meshBackground}>
-              <LinearGradient
-                colors={[
-                  "rgba(255, 81, 53, 0.03)",
-                  "transparent",
-                  "rgba(255, 122, 92, 0.02)",
-                ]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.meshGradient}
-              />
-            </View>
-
-            <View style={styles.cardMagicHeader}>
-              <View style={styles.magicIconContainer}>
-                <LinearGradient
-                  colors={[COLORS.primary, COLORS.primaryLight]}
-                  style={styles.iconGradient}
-                >
-                  <Ionicons name={icon as any} size={24} color={COLORS.white} />
-                </LinearGradient>
-
-                <View style={styles.iconPulse}>
+          <GlassmorphismCard isPrimary={true} style={styles.mainCardContainer}>
+            <View style={styles.cardContentWrapper}>
+              <View style={styles.cardMagicHeader}>
+                <View style={styles.magicIconContainer}>
                   <LinearGradient
-                    colors={["rgba(255, 81, 53, 0.2)", "transparent"]}
-                    style={styles.pulseGradient}
-                  />
+                    colors={ORANGE_GRADIENT.colors}
+                    start={ORANGE_GRADIENT.start}
+                    end={ORANGE_GRADIENT.end}
+                    style={styles.iconGradient}
+                  >
+                    <Ionicons
+                      name={icon as any}
+                      size={width * 0.06} // Responsive icon size
+                      color={COLORS.white}
+                    />
+                  </LinearGradient>
+                </View>
+
+                <View style={styles.titleContainer}>
+                  <Text style={styles.cardMagicTitle}>{title}</Text>
+                  <View style={styles.titleUnderline}>
+                    <LinearGradient
+                      colors={ORANGE_GRADIENT.colors}
+                      start={ORANGE_GRADIENT.start}
+                      end={ORANGE_GRADIENT.end}
+                      style={styles.titleUnderlineGradient}
+                    />
+                  </View>
                 </View>
               </View>
 
-              <View style={styles.titleContainer}>
-                <Text style={styles.cardMagicTitle}>{title}</Text>
-                <View style={styles.titleUnderline} />
-              </View>
+              <View style={styles.cardContent}>{children}</View>
             </View>
-
-            <View style={styles.cardContent}>{children}</View>
-          </LinearGradient>
+          </GlassmorphismCard>
         </Animated.View>
       </Animated.View>
     );
@@ -445,14 +718,14 @@ const ImmersiveCard = React.memo(
 
 // ✨ COMPOSANT PRINCIPAL PREVIEW TAB ULTRA IMMERSIF
 const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
-  ({ user, sports, objectifs, niveau }) => {
+  ({ user, sports, objectifs, niveau, userSports = [] }) => {
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
     const [currentSection, setCurrentSection] = useState(0);
     const [isPhotoNavigationActive, setIsPhotoNavigationActive] =
       useState(true);
     const scrollY = useSharedValue(0);
+    const scrollViewRef = React.useRef<Animated.ScrollView>(null);
 
-    // ✅ COMPUTED VALUES
     const userAge = useMemo(() => {
       if (!user?.birthdate) return "";
       const diff = Date.now() - new Date(user.birthdate).getTime();
@@ -478,7 +751,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
       );
     }, [goalsArray]);
 
-    // ✨ AJOUT DE LA SECTION PHOTOS
     const sectionNames = useMemo(() => {
       const names = ["Photos", "Je recherche", "À propos", "Essentiels"];
       if (goalsArray.length > 0) names.push("Objectifs");
@@ -487,7 +759,7 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
     }, [goalsArray.length, sportsArray.length]);
 
     const totalSections = useMemo(() => {
-      let count = 4; // "Photos", "Je recherche", "À propos", "Les essentiels"
+      let count = 4;
       if (goalsArray.length > 0) count += 1;
       if (sportsArray.length > 0) count += 1;
       return count;
@@ -495,12 +767,44 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
     const userPhotos = useMemo(() => user?.photos || [], [user?.photos]);
 
-    // Reset photo index when user changes
+    // ✅ FONCTION POUR DÉTECTER LES SPORTS EN COMMUN
+    const isSharedSport = useCallback(
+      (sport: string): boolean => {
+        if (userSports.length === 0) return false;
+
+        // Extrait le nom du sport (sans emoji)
+        const sportName = sport
+          .split(" ")
+          .slice(1)
+          .join(" ")
+          .toLowerCase()
+          .trim();
+
+        return userSports.some((userSport) => {
+          const userSportName = userSport
+            .split(" ")
+            .slice(1)
+            .join(" ")
+            .toLowerCase()
+            .trim();
+          return userSportName === sportName;
+        });
+      },
+      [userSports]
+    );
+
     useEffect(() => {
       setCurrentPhotoIndex(0);
     }, [user?.photos]);
 
-    // ✨ SCROLL HANDLER ULTRA INTELLIGENT - PARFAITEMENT SYNCHRONISÉ
+    const navigateToSection = (sectionIndex: number) => {
+      const targetScrollY = getScrollPositionForSection(sectionIndex);
+      scrollViewRef.current?.scrollTo({
+        y: targetScrollY,
+        animated: true,
+      });
+    };
+
     const scrollHandler = useAnimatedScrollHandler({
       onScroll: (event) => {
         scrollY.value = event.contentOffset.y;
@@ -510,7 +814,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
         runOnJS(setIsPhotoNavigationActive)(photoNavShouldBeActive);
 
-        // Utilisation de la même logique que partout ailleurs
         const newSection = getCurrentSection(event.contentOffset.y);
         const clampedSection = Math.max(
           0,
@@ -521,7 +824,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
       },
     });
 
-    // ✨ HEADER ANIMATIONS MAGIQUES
     const headerStyle = useAnimatedStyle(() => {
       const opacity = interpolate(
         scrollY.value,
@@ -586,7 +888,11 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
 
     return (
       <View style={styles.container}>
-        {/* ✅ NAVIGATION PHOTO DISCRÈTE PAR TAP */}
+        <View style={styles.floatingContainer}>
+          <OptimizedParticle delay={5000} />
+          <OptimizedParticle delay={15000} />
+        </View>
+
         {userPhotos.length > 1 && isPhotoNavigationActive && (
           <>
             <TouchableOpacity
@@ -625,14 +931,13 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
           </>
         )}
 
-        {/* ✨ PROGRESS INDICATOR ULTRA MAGIQUE */}
         <ProgressIndicator
           scrollY={scrollY}
           totalSections={totalSections}
           sectionNames={sectionNames}
+          onSectionPress={navigateToSection}
         />
 
-        {/* ✨ HEADER PHOTO ULTRA IMMERSIF */}
         <Animated.View style={[styles.header, headerStyle]}>
           {currentPhoto ? (
             <>
@@ -654,7 +959,10 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                             index === currentPhotoIndex
                               ? COLORS.white
                               : COLORS.progressBg,
-                          width: index === currentPhotoIndex ? 24 : 16,
+                          width:
+                            index === currentPhotoIndex
+                              ? width * 0.06
+                              : width * 0.04, // Responsive
                           opacity: isPhotoNavigationActive ? 1 : 0.6,
                         },
                       ]}
@@ -670,7 +978,11 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
                 colors={[COLORS.softGray, COLORS.lightGray]}
                 style={styles.placeholderGradient}
               >
-                <Ionicons name="person" size={80} color={COLORS.gray} />
+                <Ionicons
+                  name="person"
+                  size={width * 0.2}
+                  color={COLORS.gray}
+                />
                 <Text style={styles.noPhotosText}>Aucune photo</Text>
               </LinearGradient>
             </View>
@@ -702,8 +1014,8 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
           </Animated.View>
         </Animated.View>
 
-        {/* ✨ CONTENT SCROLLABLE ULTRA IMMERSIF */}
         <Animated.ScrollView
+          ref={scrollViewRef}
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           onScroll={scrollHandler}
@@ -712,10 +1024,8 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
           bounces={true}
           decelerationRate="normal"
         >
-          {/* SPACER POUR LA PHOTO */}
           <View style={styles.headerSpacer} />
 
-          {/* CARD 1: JE RECHERCHE */}
           <ImmersiveCard
             index={1}
             scrollY={scrollY}
@@ -726,14 +1036,34 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             <View style={styles.rechercheContainer}>
               <Text style={styles.rechercheText}>{mainRecherche}</Text>
               <View style={styles.rechercheDecoration}>
-                <View style={styles.decorationDot} />
-                <View style={styles.decorationLine} />
-                <View style={styles.decorationDot} />
+                <View style={styles.decorationDot}>
+                  <LinearGradient
+                    colors={ORANGE_GRADIENT.colors}
+                    start={ORANGE_GRADIENT.start}
+                    end={ORANGE_GRADIENT.end}
+                    style={styles.decorationDotGradient}
+                  />
+                </View>
+                <View style={styles.decorationLine}>
+                  <LinearGradient
+                    colors={ORANGE_GRADIENT.colors}
+                    start={ORANGE_GRADIENT.start}
+                    end={ORANGE_GRADIENT.end}
+                    style={styles.decorationLineGradient}
+                  />
+                </View>
+                <View style={styles.decorationDot}>
+                  <LinearGradient
+                    colors={ORANGE_GRADIENT.colors}
+                    start={ORANGE_GRADIENT.start}
+                    end={ORANGE_GRADIENT.end}
+                    style={styles.decorationDotGradient}
+                  />
+                </View>
               </View>
             </View>
           </ImmersiveCard>
 
-          {/* CARD 2: À PROPOS */}
           <ImmersiveCard
             index={2}
             scrollY={scrollY}
@@ -768,7 +1098,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             </View>
           </ImmersiveCard>
 
-          {/* CARD 3: ESSENTIELS */}
           <ImmersiveCard
             index={3}
             scrollY={scrollY}
@@ -777,44 +1106,63 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             totalSections={totalSections}
           >
             <View style={styles.essentielsGrid}>
-              <View style={styles.essentialTag}>
-                <View style={styles.essentialIcon}>
-                  <Ionicons
-                    name="location-outline"
-                    size={18}
-                    color={COLORS.primary}
-                  />
-                </View>
-                <Text style={styles.essentialText}>Proche de vous</Text>
-              </View>
-              <View style={styles.essentialTag}>
-                <View style={styles.essentialIcon}>
-                  <Ionicons
-                    name="fitness-outline"
-                    size={18}
-                    color={COLORS.primary}
-                  />
-                </View>
-                <Text style={styles.essentialText}>Gym</Text>
-              </View>
-              {(niveau || user?.fitness_level) && (
-                <View style={styles.essentialTag}>
+              <GlassmorphismCard
+                intensity="light"
+                isPrimary={false}
+                style={styles.essentialTag}
+              >
+                <View style={styles.essentialTagContent}>
                   <View style={styles.essentialIcon}>
                     <Ionicons
-                      name="trending-up-outline"
-                      size={18}
+                      name="location-outline"
+                      size={width * 0.045} // Responsive
                       color={COLORS.primary}
                     />
                   </View>
-                  <Text style={styles.essentialText}>
-                    {niveau || user?.fitness_level}
-                  </Text>
+                  <Text style={styles.essentialText}>Proche de vous</Text>
                 </View>
+              </GlassmorphismCard>
+
+              <GlassmorphismCard
+                intensity="light"
+                isPrimary={false}
+                style={styles.essentialTag}
+              >
+                <View style={styles.essentialTagContent}>
+                  <View style={styles.essentialIcon}>
+                    <Ionicons
+                      name="fitness-outline"
+                      size={width * 0.045} // Responsive
+                      color={COLORS.primary}
+                    />
+                  </View>
+                  <Text style={styles.essentialText}>Gym</Text>
+                </View>
+              </GlassmorphismCard>
+
+              {(niveau || user?.fitness_level) && (
+                <GlassmorphismCard
+                  intensity="light"
+                  isPrimary={false}
+                  style={styles.essentialTag}
+                >
+                  <View style={styles.essentialTagContent}>
+                    <View style={styles.essentialIcon}>
+                      <Ionicons
+                        name="trending-up-outline"
+                        size={width * 0.045} // Responsive
+                        color={COLORS.primary}
+                      />
+                    </View>
+                    <Text style={styles.essentialText}>
+                      {niveau || user?.fitness_level}
+                    </Text>
+                  </View>
+                </GlassmorphismCard>
               )}
             </View>
           </ImmersiveCard>
 
-          {/* CARD 4: OBJECTIFS */}
           {goalsArray.length > 0 && (
             <ImmersiveCard
               index={4}
@@ -846,7 +1194,6 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             </ImmersiveCard>
           )}
 
-          {/* CARD 5: SPORTS */}
           {sportsArray.length > 0 && (
             <ImmersiveCard
               index={goalsArray.length > 0 ? 5 : 4}
@@ -857,21 +1204,30 @@ const PreviewProfileTab = React.memo<PreviewProfileTabProps>(
             >
               <View style={styles.sportsContainer}>
                 <View style={styles.sportsGrid}>
-                  {sportsArray.slice(0, 6).map((sport, index) => (
-                    <View key={index} style={styles.sportChip}>
-                      <Text style={styles.sportEmoji}>
-                        {sport.split(" ")[0]}
-                      </Text>
-                      <Text style={styles.sportName}>
-                        {sport.split(" ").slice(1).join(" ")}
-                      </Text>
-                    </View>
-                  ))}
+                  {sportsArray.slice(0, 6).map((sport, index) => {
+                    // ✅ UTILISE LA VRAIE LOGIQUE DE DÉTECTION DES SPORTS EN COMMUN
+                    const isCommon = isSharedSport(sport);
+
+                    return (
+                      <SportChip
+                        key={`${sport}-${index}`}
+                        sport={sport}
+                        index={index}
+                        isCommon={isCommon}
+                      />
+                    );
+                  })}
                 </View>
                 {sportsArray.length > 6 && (
-                  <Text style={styles.moreSports}>
-                    +{sportsArray.length - 6} autre(s) sport(s)
-                  </Text>
+                  <GlassmorphismCard
+                    intensity="light"
+                    isPrimary={false}
+                    style={styles.moreSportsContainer}
+                  >
+                    <Text style={styles.moreSports}>
+                      +{sportsArray.length - 6} autre(s) sport(s)
+                    </Text>
+                  </GlassmorphismCard>
                 )}
               </View>
             </ImmersiveCard>
@@ -886,28 +1242,89 @@ PreviewProfileTab.displayName = "PreviewProfileTab";
 
 export default PreviewProfileTab;
 
-// ✨ STYLES ULTRA IMMERSIFS
+// ✨ STYLES ULTRA IMMERSIFS AVEC RESPONSIVITÉ PARFAITE
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.lightGray,
+    position: "relative",
+    overflow: "hidden",
+  },
+
+  // ✨ GLASSMORPHISM ULTRA-RÉALISTE OPTIMISÉ
+  glassmorphismContainer: {
+    borderRadius: width * 0.06, // Responsive border radius
+    borderWidth: 0.5,
+    overflow: "hidden",
+    position: "relative",
+  },
+  glassmorphismGradient: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: width * 0.06,
+  },
+  topReflection: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "25%",
+    borderTopLeftRadius: width * 0.06,
+    borderTopRightRadius: width * 0.06,
+    zIndex: 2,
+  },
+  glassContent: {
+    flex: 1,
+    zIndex: 5,
+    position: "relative",
+  },
+
+  // ✨ PARTICULES ULTRA-OPTIMISÉES
+  floatingContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0.2,
+    pointerEvents: "none",
+  },
+  optimizedParticle: {
+    position: "absolute",
+    width: width * 0.008,
+    height: width * 0.008,
+    borderRadius: width * 0.004,
+    left: "60%",
+  },
+  particleCore: {
+    width: "100%",
+    height: "100%",
+    borderRadius: width * 0.004,
+    backgroundColor: "rgba(255, 255, 255, 0.4)",
+    shadowColor: "rgba(255, 255, 255, 0.6)",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 3,
   },
 
   // ✨ PROGRESS INDICATOR ULTRA MAGIQUE
   progressContainer: {
     position: "absolute",
-    right: 20,
-    top: 120,
-    bottom: 120,
+    right: width * 0.05, // Responsive positioning
+    top: height * 0.15,
+    bottom: height * 0.15,
     zIndex: 100,
-    width: 6,
+    width: width * 0.015, // Responsive width
     alignItems: "center",
   },
   progressTrack: {
     flex: 1,
-    width: 3,
+    width: width * 0.008,
     backgroundColor: COLORS.progressBg,
-    borderRadius: 3,
+    borderRadius: width * 0.008,
     overflow: "hidden",
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 2 },
@@ -916,7 +1333,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     width: "100%",
-    borderRadius: 3,
+    borderRadius: width * 0.008,
     overflow: "hidden",
   },
   progressGradient: {
@@ -928,18 +1345,18 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "space-between",
     alignItems: "center",
-    right: -2,
+    right: -width * 0.005,
   },
 
-  // Magic Progress Dots
+  // Magic Progress Dots - Responsive
   magicDotContainer: {
     alignItems: "center",
     position: "relative",
   },
   progressDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
+    width: width * 0.035,
+    height: width * 0.035,
+    borderRadius: width * 0.018,
     backgroundColor: COLORS.white,
     borderWidth: 2,
     borderColor: COLORS.progressBg,
@@ -952,14 +1369,17 @@ const styles = StyleSheet.create({
   },
   dotFill: {
     height: "100%",
-    backgroundColor: COLORS.primary,
-    borderRadius: 5,
+    borderRadius: width * 0.013,
+    overflow: "hidden",
+  },
+  dotFillGradient: {
+    flex: 1,
   },
   dotGlow: {
     position: "absolute",
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: width * 0.06,
+    height: width * 0.06,
+    borderRadius: width * 0.03,
     backgroundColor: COLORS.primary,
     opacity: 0.3,
     shadowColor: COLORS.primary,
@@ -969,25 +1389,26 @@ const styles = StyleSheet.create({
   },
   dotLabel: {
     position: "absolute",
-    right: 25,
-    minWidth: 120,
+    right: width * 0.065,
+    minWidth: width * 0.3,
     alignItems: "flex-end",
   },
-  labelGradient: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+  labelContainer: {
+    paddingHorizontal: width * 0.03,
+    paddingVertical: height * 0.008,
+    borderRadius: width * 0.03,
+    alignItems: "center",
+    justifyContent: "center",
   },
   labelText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: COLORS.white,
+    fontSize: width * 0.03,
+    fontWeight: "800",
+    color: COLORS.primary,
     textAlign: "center",
+    textShadowColor: "rgba(255, 255, 255, 0.9)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    letterSpacing: 0.3,
   },
 
   // ✨ HEADER ULTRA IMMERSIF
@@ -1013,27 +1434,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   noPhotosText: {
-    fontSize: 16,
+    fontSize: width * 0.04,
     color: COLORS.gray,
-    marginTop: 12,
+    marginTop: height * 0.015,
     fontWeight: "500",
   },
 
-  // ✨ INDICATEURS ULTRA MODERNES
+  // ✨ INDICATEURS ULTRA MODERNES - Responsive
   photoIndicators: {
     position: "absolute",
-    top: 60,
-    left: 20,
-    right: 20,
+    top: height * 0.075,
+    left: width * 0.05,
+    right: width * 0.05,
     flexDirection: "row",
-    gap: 6,
+    gap: width * 0.015,
     zIndex: 5,
     alignItems: "center",
     pointerEvents: "none",
   },
   indicator: {
-    height: 4,
-    borderRadius: 2,
+    height: height * 0.005,
+    borderRadius: height * 0.0025,
     backgroundColor: COLORS.white,
   },
 
@@ -1051,18 +1472,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Nom flottant
+  // Nom flottant - Responsive
   nameContainer: {
     position: "absolute",
-    bottom: 80,
-    left: 24,
-    right: 24,
+    bottom: height * 0.1,
+    left: width * 0.06,
+    right: width * 0.06,
     zIndex: 3,
     alignItems: "center",
     pointerEvents: "none",
   },
   userName: {
-    fontSize: 42,
+    fontSize: width * 0.105,
     fontWeight: "900",
     color: COLORS.white,
     textAlign: "center",
@@ -1070,18 +1491,18 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 3 },
     textShadowRadius: 12,
     letterSpacing: -1,
-    marginBottom: 8,
+    marginBottom: height * 0.01,
   },
   ageContainer: {
     backgroundColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: width * 0.04,
+    paddingVertical: height * 0.008,
+    borderRadius: width * 0.05,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.3)",
   },
   userAge: {
-    fontSize: 16,
+    fontSize: width * 0.04,
     fontWeight: "600",
     color: COLORS.white,
     textAlign: "center",
@@ -1093,9 +1514,9 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingRight: 50,
-    paddingBottom: 200,
+    paddingHorizontal: width * 0.04,
+    paddingRight: width * 0.125,
+    paddingBottom: height * 0.25,
   },
   headerSpacer: {
     height: HEADER_HEIGHT,
@@ -1104,7 +1525,7 @@ const styles = StyleSheet.create({
   // ✨ CARTES IMMERSIVES
   immersiveCard: {
     height: CARD_HEIGHT,
-    marginBottom: 20,
+    marginBottom: height * 0.025,
     justifyContent: "center",
     position: "relative",
   },
@@ -1119,68 +1540,54 @@ const styles = StyleSheet.create({
   },
   particle: {
     position: "absolute",
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: width * 0.01,
+    height: width * 0.01,
+    borderRadius: width * 0.005,
     left: Math.random() * width,
     top: "80%",
   },
   particleGradient: {
     width: "100%",
     height: "100%",
-    borderRadius: 2,
+    borderRadius: width * 0.005,
   },
   cardBackground: {
     flex: 1,
-    borderRadius: 28,
+    borderRadius: width * 0.07,
     overflow: "hidden",
-    shadowColor: "rgba(255, 81, 53, 0.25)",
-    shadowOffset: { width: 0, height: 15 },
-    shadowOpacity: 0.25,
-    shadowRadius: 30,
-    elevation: 15,
     position: "relative",
     zIndex: 2,
   },
-  cardGradient: {
+  mainCardContainer: {
     flex: 1,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.5)",
-    position: "relative",
+    borderRadius: width * 0.07,
   },
-  meshBackground: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1,
-  },
-  meshGradient: {
+  cardContentWrapper: {
     flex: 1,
-    opacity: 0.6,
+    padding: width * 0.06,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    borderRadius: width * 0.07,
   },
 
-  // Header magique des cartes
+  // Header des cartes - Responsive
   cardMagicHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
-    gap: 16,
+    marginBottom: height * 0.025,
+    gap: width * 0.04,
     zIndex: 3,
     position: "relative",
   },
   magicIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: width * 0.12,
+    height: width * 0.12,
+    borderRadius: width * 0.04,
     overflow: "hidden",
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 15,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
     position: "relative",
   },
   iconGradient: {
@@ -1188,36 +1595,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  iconPulse: {
-    position: "absolute",
-    top: -8,
-    left: -8,
-    right: -8,
-    bottom: -8,
-    borderRadius: 24,
-    zIndex: -1,
-  },
-  pulseGradient: {
-    flex: 1,
-    borderRadius: 24,
-  },
   titleContainer: {
     flex: 1,
     position: "relative",
   },
   cardMagicTitle: {
-    fontSize: 24,
+    fontSize: width * 0.06,
     fontWeight: "800",
     color: COLORS.textPrimary,
     letterSpacing: -0.5,
-    marginBottom: 6,
+    marginBottom: height * 0.008,
   },
   titleUnderline: {
-    width: 50,
-    height: 3,
-    backgroundColor: COLORS.primary,
-    borderRadius: 2,
-    marginBottom: 6,
+    width: width * 0.125,
+    height: height * 0.004,
+    borderRadius: height * 0.0025,
+    marginBottom: height * 0.008,
+    overflow: "hidden",
+  },
+  titleUnderlineGradient: {
+    flex: 1,
   },
 
   // Contenu des cartes
@@ -1228,54 +1625,60 @@ const styles = StyleSheet.create({
     position: "relative",
   },
 
-  // "Je recherche"
+  // "Je recherche" - Responsive
   rechercheContainer: {
     alignItems: "center",
-    paddingVertical: 16,
+    paddingVertical: height * 0.02,
   },
   rechercheText: {
-    fontSize: 22,
+    fontSize: width * 0.055,
     fontWeight: "700",
     color: COLORS.textPrimary,
     textAlign: "center",
-    lineHeight: 32,
-    marginBottom: 24,
+    lineHeight: width * 0.08,
+    marginBottom: height * 0.03,
     letterSpacing: -0.3,
   },
   rechercheDecoration: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: width * 0.03,
   },
   decorationDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.primary,
+    width: width * 0.02,
+    height: width * 0.02,
+    borderRadius: width * 0.01,
+    overflow: "hidden",
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.4,
     shadowRadius: 4,
   },
+  decorationDotGradient: {
+    flex: 1,
+  },
   decorationLine: {
-    width: 80,
-    height: 2,
-    backgroundColor: COLORS.primary,
-    borderRadius: 2,
+    width: width * 0.2,
+    height: height * 0.0025,
+    borderRadius: height * 0.00125,
+    overflow: "hidden",
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
   },
+  decorationLineGradient: {
+    flex: 1,
+  },
 
-  // "À propos"
+  // "À propos" - Responsive
   aproposContainer: {
     justifyContent: "center",
-    paddingVertical: 16,
+    paddingVertical: height * 0.02,
   },
   aproposText: {
-    fontSize: 18,
-    lineHeight: 28,
+    fontSize: width * 0.045,
+    lineHeight: width * 0.07,
     color: COLORS.textSecondary,
     textAlign: "center",
     letterSpacing: -0.2,
@@ -1284,68 +1687,63 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: "800",
     backgroundColor: "rgba(255, 81, 53, 0.1)",
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: width * 0.01,
+    paddingVertical: height * 0.0025,
+    borderRadius: width * 0.01,
   },
   moreText: {
     color: COLORS.gray,
     fontStyle: "italic",
-    fontSize: 16,
+    fontSize: width * 0.04,
   },
 
-  // "Essentiels"
+  // "Essentiels" avec glassmorphism ultra - Responsive
   essentielsGrid: {
-    gap: 16,
+    gap: height * 0.02,
   },
   essentialTag: {
+    borderRadius: width * 0.06,
+    marginBottom: height * 0.005,
+  },
+  essentialTagContent: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 81, 53, 0.05)",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 24,
-    gap: 16,
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 81, 53, 0.2)",
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 3,
+    paddingHorizontal: width * 0.05,
+    paddingVertical: height * 0.02,
+    gap: width * 0.04,
   },
   essentialIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: width * 0.1,
+    height: width * 0.1,
+    borderRadius: width * 0.035,
     backgroundColor: "rgba(255, 81, 53, 0.15)",
     justifyContent: "center",
     alignItems: "center",
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
   },
   essentialText: {
-    fontSize: 16,
+    fontSize: width * 0.04,
     fontWeight: "700",
     color: COLORS.textPrimary,
     flex: 1,
     letterSpacing: -0.2,
   },
 
-  // Objectifs
+  // Objectifs - Responsive
   objectifsContainer: {
-    gap: 16,
+    gap: height * 0.02,
   },
   objectifItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: width * 0.04,
     backgroundColor: "rgba(255, 247, 245, 0.8)",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 20,
+    paddingHorizontal: width * 0.04,
+    paddingVertical: height * 0.015,
+    borderRadius: width * 0.05,
     borderWidth: 1,
     borderColor: "rgba(255, 81, 53, 0.1)",
     shadowColor: COLORS.primary,
@@ -1354,9 +1752,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   objectifIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: width * 0.12,
+    height: width * 0.12,
+    borderRadius: width * 0.04,
     backgroundColor: COLORS.white,
     justifyContent: "center",
     alignItems: "center",
@@ -1368,62 +1766,91 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   objectifEmoji: {
-    fontSize: 22,
+    fontSize: width * 0.055,
   },
   objectifText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: width * 0.04,
     fontWeight: "700",
     color: COLORS.textPrimary,
     letterSpacing: -0.2,
   },
 
-  // Sports - OPTIMISÉ AVEC 2 COLONNES
+  // Sports avec glassmorphism ultra-réaliste - Responsive et simplifié
   sportsContainer: {
-    gap: 16,
+    gap: height * 0.02,
   },
   sportsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "space-between",
+    gap: width * 0.025,
+    justifyContent: "flex-start",
   },
   sportChip: {
+    borderRadius: width * 0.05,
+    minWidth: width * 0.28, // Largeur légèrement plus grande pour afficher les noms complets
+    marginBottom: height * 0.0025,
+  },
+  sportChipCommon: {
+    marginBottom: height * 0.0025,
+    shadowColor: "#FF5135",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  sportChipCommonContainer: {
+    borderRadius: width * 0.05,
+    minWidth: width * 0.28, // Largeur identique pour la cohérence
+  },
+  sportGradientOverlay: {
+    borderRadius: width * 0.05,
+    overflow: "hidden",
+  },
+  sportChipContent: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.white,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 20,
-    gap: 8,
-    borderWidth: 1.5,
-    borderColor: "rgba(255, 81, 53, 0.15)",
-    width: "48%",
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 4,
+    paddingHorizontal: width * 0.03,
+    paddingVertical: height * 0.015,
+    gap: width * 0.02,
+    minHeight: height * 0.045,
   },
   sportEmoji: {
-    fontSize: 16,
+    fontSize: width * 0.04,
+    flexShrink: 0,
   },
   sportName: {
-    fontSize: 13,
+    fontSize: width * 0.032,
     fontWeight: "700",
     color: COLORS.textPrimary,
     flex: 1,
     letterSpacing: -0.1,
+    textAlign: "left",
+  },
+  sportNameCommon: {
+    fontSize: width * 0.032,
+    fontWeight: "800",
+    color: COLORS.white,
+    flex: 1,
+    letterSpacing: -0.1,
+    textShadowColor: "rgba(0, 0, 0, 0.3)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    textAlign: "left",
+  },
+  moreSportsContainer: {
+    borderRadius: width * 0.045,
+    paddingHorizontal: width * 0.04,
+    paddingVertical: height * 0.0125,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: height * 0.01,
   },
   moreSports: {
-    fontSize: 15,
+    fontSize: width * 0.0375,
     color: COLORS.primary,
     textAlign: "center",
     fontWeight: "600",
-    backgroundColor: "rgba(255, 81, 53, 0.1)",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 18,
-    overflow: "hidden",
+    letterSpacing: 0.3,
   },
 });
