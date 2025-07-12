@@ -1,5 +1,8 @@
-import React, { useState } from "react";
+import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { useRef, useState } from "react";
 import {
+  Animated,
   FlatList,
   Modal,
   StyleSheet,
@@ -41,198 +44,326 @@ const RegisterStepGender = ({ onNext, gender = "" }: Props) => {
   const [selected, setSelected] = useState<string>(gender);
   const [showModal, setShowModal] = useState(false);
 
+  // MODIFIÉ: Une animation par bouton
+  const femmeScale = useRef(new Animated.Value(1)).current;
+  const hommeScale = useRef(new Animated.Value(1)).current;
+  const autreScale = useRef(new Animated.Value(1)).current;
+
+  // NOUVEAU: Fonction générique pour l'animation de bounce
+  const triggerBounce = (animValue: Animated.Value) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Animated.sequence([
+      Animated.timing(animValue, {
+        toValue: 1.05,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(animValue, {
+        toValue: 1,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
   const handleNext = () => {
     if (selected) onNext({ gender: selected });
   };
 
+  const isOtherSelected =
+    COMMON_GENDERS.includes(selected) &&
+    selected !== "Femme" &&
+    selected !== "Homme";
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.headline}>
-        Quel est le genre qui te décrit le mieux ?
-      </Text>
+    <LinearGradient
+      colors={["#FFA958", "#FF5135"]}
+      start={{ x: 1, y: 0 }}
+      end={{ x: 0, y: 1 }}
+      style={styles.fullScreenGradient}
+    >
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <Text style={styles.headline}>
+            Quel est le genre qui te décrit le mieux ?
+          </Text>
+          <Text style={styles.subtitle}>
+            Cette information reste privée et nous aide à personnaliser ton
+            expérience.
+          </Text>
 
-      {/* Femme */}
-      <TouchableOpacity
-        style={[styles.option, selected === "Femme" && styles.optionSelected]}
-        onPress={() => setSelected("Femme")}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.optionText}>Femme</Text>
-        <View
-          style={[styles.radio, selected === "Femme" && styles.radioSelected]}
-        />
-      </TouchableOpacity>
+          {/* MODIFIÉ: Le conteneur n'est plus animé */}
+          <View style={styles.optionsContainer}>
+            {/* Femme */}
+            <Animated.View style={{ transform: [{ scale: femmeScale }] }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setSelected("Femme");
+                  triggerBounce(femmeScale);
+                }}
+                activeOpacity={0.8}
+                style={[
+                  styles.optionButton,
+                  selected === "Femme" && styles.optionSelected,
+                ]}
+              >
+                <LinearGradient
+                  colors={["rgba(255,255,255,0.1)", "rgba(255,255,255,0.05)"]}
+                  style={styles.buttonGlass}
+                />
+                <Text style={styles.optionText}>Femme</Text>
+              </TouchableOpacity>
+            </Animated.View>
 
-      {/* Homme */}
-      <TouchableOpacity
-        style={[styles.option, selected === "Homme" && styles.optionSelected]}
-        onPress={() => setSelected("Homme")}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.optionText}>Homme</Text>
-        <View
-          style={[styles.radio, selected === "Homme" && styles.radioSelected]}
-        />
-      </TouchableOpacity>
+            {/* Homme */}
+            <Animated.View style={{ transform: [{ scale: hommeScale }] }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setSelected("Homme");
+                  triggerBounce(hommeScale);
+                }}
+                activeOpacity={0.8}
+                style={[
+                  styles.optionButton,
+                  selected === "Homme" && styles.optionSelected,
+                ]}
+              >
+                <LinearGradient
+                  colors={["rgba(255,255,255,0.1)", "rgba(255,255,255,0.05)"]}
+                  style={styles.buttonGlass}
+                />
+                <Text style={styles.optionText}>Homme</Text>
+              </TouchableOpacity>
+            </Animated.View>
 
-      {/* Autre... ouvre une modal */}
-      <TouchableOpacity
-        style={[
-          styles.option,
-          COMMON_GENDERS.includes(selected) &&
-            selected !== "Femme" &&
-            selected !== "Homme" &&
-            styles.optionSelected,
-        ]}
-        onPress={() => setShowModal(true)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.optionText}>
-          {COMMON_GENDERS.includes(selected) &&
-          selected !== "Femme" &&
-          selected !== "Homme"
-            ? selected
-            : "Autre…"}
-        </Text>
-        <View
-          style={[
-            styles.radio,
-            COMMON_GENDERS.includes(selected) &&
-              selected !== "Femme" &&
-              selected !== "Homme" &&
-              styles.radioSelected,
-          ]}
-        />
-      </TouchableOpacity>
+            {/* Autre */}
+            <Animated.View style={{ transform: [{ scale: autreScale }] }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowModal(true);
+                  triggerBounce(autreScale);
+                }}
+                activeOpacity={0.8}
+                style={[
+                  styles.optionButton,
+                  isOtherSelected && styles.optionSelected,
+                ]}
+              >
+                <LinearGradient
+                  colors={["rgba(255,255,255,0.1)", "rgba(255,255,255,0.05)"]}
+                  style={styles.buttonGlass}
+                />
+                <Text style={styles.optionText}>
+                  {isOtherSelected ? selected : "Autre…"}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+        </View>
 
-      {/* Modal déroulante */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            onPress={handleNext}
+            disabled={!selected}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={
+                selected ? ["#FFFFFF", "#DDDDDD"] : ["#AAAAAA", "#999999"]
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.nextButton}
+            >
+              <Text
+                style={[
+                  styles.nextButtonText,
+                  { color: selected ? "#FF5135" : "#777777" },
+                ]}
+              >
+                Suivant
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Modal */}
       <Modal visible={showModal} transparent animationType="fade">
-        <TouchableOpacity
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.15)" }}
-          onPress={() => setShowModal(false)}
-          activeOpacity={1}
-        >
-          <View style={styles.modalBox}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Choisir un genre</Text>
             <FlatList
               data={COMMON_GENDERS}
               keyExtractor={(item) => item}
               renderItem={({ item }) => (
                 <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    selected === item && { backgroundColor: "#E8F1FB" },
-                  ]}
+                  style={styles.modalItem}
                   onPress={() => {
                     setSelected(item);
+                    triggerBounce(autreScale);
                     setShowModal(false);
                   }}
                 >
                   <Text
-                    style={{
-                      color: "#092C44",
-                      fontWeight: selected === item ? "bold" : "normal",
-                      fontSize: 17,
-                    }}
+                    style={[
+                      styles.modalItemText,
+                      selected === item && styles.modalItemTextSelected,
+                    ]}
                   >
                     {item}
                   </Text>
                 </TouchableOpacity>
               )}
             />
+            <TouchableOpacity
+              onPress={() => setShowModal(false)}
+              style={styles.modalCloseButton}
+            >
+              <Text style={styles.modalCloseButtonText}>Fermer</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
-
-      {/* Next button */}
-      <TouchableOpacity
-        style={[
-          styles.nextButton,
-          selected
-            ? { backgroundColor: "#FF5135" }
-            : { backgroundColor: "#ddd" },
-        ]}
-        disabled={!selected}
-        onPress={handleNext}
-        activeOpacity={0.9}
-      >
-        <Text style={{ color: "#fff", fontSize: 22, fontWeight: "bold" }}>
-          Suivant
-        </Text>
-      </TouchableOpacity>
-    </View>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
+  fullScreenGradient: { flex: 1 },
   container: {
     flex: 1,
-    padding: 28,
-    backgroundColor: "#fff",
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+    justifyContent: "flex-end",
+  },
+  content: {
+    maxWidth: 400,
+    alignSelf: "center",
+    width: "100%",
+    marginBottom: 40,
+  },
+  footer: {
     justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: 40,
+    paddingTop: 8,
   },
   headline: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "700",
-    marginBottom: 20,
-    color: "#0E4A7B",
+    marginBottom: 8,
+    color: "#fff",
     letterSpacing: -0.5,
-    textAlign: "left",
+    textShadowColor: "rgba(0, 0, 0, 0.1)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    textAlign: "center",
   },
-  option: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F6F7F9",
-    borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 18,
-    marginBottom: 16,
-    justifyContent: "space-between",
+  subtitle: {
+    color: "rgba(255, 255, 255, 0.9)",
+    fontSize: 15,
+    marginBottom: 28,
+    textAlign: "center",
+    lineHeight: 22,
   },
-  optionSelected: {
-    backgroundColor: "#E8F1FB",
-    borderColor: "#0E4A7B",
-    borderWidth: 1.5,
+  optionsContainer: {
+    gap: 16,
   },
-  optionText: {
-    fontSize: 18,
-    color: "#092C44",
-    fontWeight: "600",
-  },
-  radio: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: "#bbb",
-    backgroundColor: "#fff",
-  },
-  radioSelected: {
-    borderColor: "#0E4A7B",
-    backgroundColor: "#0E4A7B33",
-  },
-  nextButton: {
-    width: "100%",
-    padding: 16,
-    borderRadius: 24,
+  optionButton: {
+    borderRadius: 22,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 2,
-    marginTop: 22,
+    overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: "transparent",
   },
-  modalBox: {
-    backgroundColor: "#fff",
-    marginHorizontal: 30,
-    marginTop: "55%",
-    borderRadius: 18,
-    paddingVertical: 10,
+  optionSelected: {
+    borderColor: "#FFFFFF",
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+  },
+  optionText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  buttonGlass: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  nextButton: {
+    borderRadius: 22,
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    width: 300,
+    maxWidth: "100%",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
     elevation: 8,
-    maxHeight: 360,
+  },
+  nextButtonText: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "85%",
+    maxHeight: "70%",
+    backgroundColor: "#2c2c2c",
+    borderRadius: 20,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    padding: 20,
+    textAlign: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.1)",
   },
   modalItem: {
     paddingVertical: 16,
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  modalItemText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 16,
+    textAlign: "center",
+  },
+  modalItemTextSelected: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  modalCloseButton: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    padding: 16,
+  },
+  modalCloseButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+    textAlign: "center",
+    fontSize: 16,
   },
 });
 
