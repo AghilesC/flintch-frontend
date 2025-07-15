@@ -106,6 +106,7 @@ const objectifsList = [
   "Confiance en soi",
   "Prendre du plaisir",
   "Récupération/blessure",
+  "Ne sait pas encore",
 ];
 
 const genderList = ["Homme", "Femme", "Non-binaire", "Autre"];

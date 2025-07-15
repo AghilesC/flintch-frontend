@@ -27,6 +27,7 @@ import {
   useFonts as usePoppins,
 } from "@expo-google-fonts/poppins";
 import AppLoading from "expo-app-loading";
+import { useFonts } from "expo-font";
 import { useApp } from "../contexts/AppContext";
 import { useNotifications } from "../contexts/NotificationContext"; // ✅ AJOUT
 
@@ -151,7 +152,7 @@ export default function TabLayout() {
     [unreadCount, state.notifications.matches] // ✅ MODIFIÉ: unreadCount au lieu de state.notifications.chat
   );
 
-  // Polices
+  // ✅ Polices - Ajout de Satoshi
   const [poppinsLoaded] = usePoppins({
     Poppins_700Bold,
     Poppins_600SemiBold,
@@ -159,6 +160,10 @@ export default function TabLayout() {
   const [interLoaded] = useInter({
     Inter_400Regular,
     Inter_600SemiBold,
+  });
+  const [satoshiLoaded] = useFonts({
+    Satoshi: require("../../assets/fonts/Satoshi-Variable.ttf"),
+    "Satoshi-Italic": require("../../assets/fonts/Satoshi-VariableItalic.ttf"),
   });
 
   // ✅ Options simplifiées et sûres
@@ -186,8 +191,8 @@ export default function TabLayout() {
     []
   );
 
-  // Bloque si polices pas chargées
-  if (!poppinsLoaded || !interLoaded) return <AppLoading />;
+  // ✅ Bloque si polices pas chargées - Ajout de satoshiLoaded
+  if (!poppinsLoaded || !interLoaded || !satoshiLoaded) return <AppLoading />;
 
   return (
     <Tabs screenOptions={screenOptions}>
@@ -317,5 +322,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 14,
     textAlign: "center",
+    fontFamily: "Satoshi", // ✅ Ajout de Satoshi pour les badges
   },
 });

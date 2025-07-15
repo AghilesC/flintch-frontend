@@ -21,56 +21,39 @@ import {
 } from "react-native";
 import Svg, { Defs, Ellipse, RadialGradient, Stop } from "react-native-svg";
 
-// --- Constants ---
-const MIN_HEIGHT_CM = 140;
-const MAX_HEIGHT_CM = 210;
-const MIN_WEIGHT_KG = 30;
-const MAX_WEIGHT_KG = 250;
-const PARTICLE_COUNT = 10;
-
-const HEIGHTS = Array.from(
-  { length: MAX_HEIGHT_CM - MIN_HEIGHT_CM + 1 },
-  (_, i) => MIN_HEIGHT_CM + i
+// --- Constantes ---
+const MONTHS = [
+  "Janvier",
+  "Février",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Août",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Décembre",
+];
+const YEARS: number[] = Array.from(
+  { length: new Date().getFullYear() - 18 - 1945 + 1 },
+  (_, i) => new Date().getFullYear() - 18 - i
 );
-const WEIGHTS = Array.from(
-  { length: MAX_WEIGHT_KG - MIN_WEIGHT_KG + 1 },
-  (_, i) => MIN_WEIGHT_KG + i
-);
-
 const ITEM_HEIGHT = 44;
 const PICKER_HEIGHT = 220;
-
-// --- Helper Functions ---
-function formatHeight(cm: number): string {
-  const inchesTotal = cm / 2.54;
-  const feet = Math.floor(inchesTotal / 12);
-  const inches = Math.round(inchesTotal % 12);
-  return `${cm} cm / ${feet}'${inches}"`;
-}
-
-function formatWeight(kg: number): string {
-  const lbs = Math.round(kg * 2.20462);
-  return `${kg} kg / ${lbs} lbs`;
-}
-
-const FORMATTED_HEIGHTS = HEIGHTS.map(formatHeight);
-const FORMATTED_WEIGHTS = WEIGHTS.map(formatWeight);
+const PARTICLE_COUNT = 10;
 
 // --- Type Definitions ---
 type PickerProps = {
   data: number[];
   formattedData: string[];
-  selectedValue: string;
-  onValueChange: (value: string) => void;
+  selectedValue: number | "";
+  onValueChange: (value: number) => void;
 };
 
-type RegisterStepHeightWeightProps = {
-  onNext: (data: { height: string; weight: string }) => void;
-  height?: string;
-  weight?: string;
-  currentStep?: number;
-  totalSteps?: number;
-  onBack?: () => void;
+type ParticleBurstProps = {
+  burstKey: number;
 };
 
 type PickerItemProps = {
@@ -79,10 +62,6 @@ type PickerItemProps = {
   formattedText: string;
   style: any;
   scrollVelocity: Animated.Value;
-};
-
-type ParticleBurstProps = {
-  burstKey: number;
 };
 
 // --- ParticleBurst Component ---
@@ -185,7 +164,7 @@ const PickerItem = React.memo(
   }
 );
 
-// --- IOSPicker Component ---
+// --- Enhanced IOSPicker Component ---
 const IOSPicker = ({
   data,
   formattedData,
@@ -199,7 +178,7 @@ const IOSPicker = ({
     () =>
       Math.max(
         0,
-        data.findIndex((item) => `${item}` === selectedValue)
+        data.findIndex((item) => item === selectedValue)
       ),
     [data, selectedValue]
   );
@@ -285,7 +264,7 @@ const IOSPicker = ({
       const index = Math.round(event.nativeEvent.contentOffset.y / ITEM_HEIGHT);
       if (index >= 0 && index < data.length) {
         setCurrentIndex(index);
-        onValueChange(`${data[index]}`);
+        onValueChange(data[index]);
         triggerSportAnimations();
       }
     },
@@ -415,20 +394,22 @@ const IOSPicker = ({
   );
 };
 
-// --- RegisterStepHeightWeight Component ---
-const RegisterStepHeightWeight = ({
+// --- Composant Principal ---
+const RegisterStepBirthday = ({
   onNext,
-  height,
-  weight,
-  currentStep = 3,
+  currentStep = 1,
   totalSteps = 8,
   onBack,
-}: RegisterStepHeightWeightProps) => {
-  const [selectedHeight, setSelectedHeight] = useState(height || "170");
-  const [selectedWeight, setSelectedWeight] = useState(weight || "70");
+}: any) => {
+  const [day, setDay] = useState<number | "">(1);
+  const [month, setMonth] = useState<number | "">(1);
+  const [year, setYear] = useState<number | "">(YEARS[0]);
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const heightPickerBounce = useRef(new Animated.Value(1)).current;
-  const weightPickerBounce = useRef(new Animated.Value(1)).current;
+  // Animations pour chaque picker
+  const dayPickerBounce = useRef(new Animated.Value(1)).current;
+  const monthPickerBounce = useRef(new Animated.Value(1)).current;
+  const yearPickerBounce = useRef(new Animated.Value(1)).current;
 
   const triggerJiggle = (animValue: Animated.Value) => {
     Animated.sequence([
@@ -446,25 +427,80 @@ const RegisterStepHeightWeight = ({
     ]).start();
   };
 
-  const handleHeightChange = useCallback(
-    (value: string) => {
-      setSelectedHeight(value);
-      triggerJiggle(heightPickerBounce);
+  const daysInMonth = useMemo(() => {
+    const y = Number(year) || new Date().getFullYear();
+    const m = Number(month) || new Date().getMonth() + 1;
+    return new Date(y, m, 0).getDate();
+  }, [month, year]);
+  const daysList = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  const isDateValid = useMemo(() => {
+    const d = Number(day),
+      m = Number(month),
+      y = Number(year);
+    if (!d || !m || !y) return false;
+    const date = new Date(y, m - 1, d);
+    if (
+      date.getFullYear() !== y ||
+      date.getMonth() !== m - 1 ||
+      date.getDate() !== d
+    )
+      return false;
+    let age = new Date().getFullYear() - date.getFullYear();
+    const mDiff = new Date().getMonth() - date.getMonth();
+    if (mDiff < 0 || (mDiff === 0 && new Date().getDate() < date.getDate()))
+      age--;
+    return age >= 18;
+  }, [day, month, year]);
+
+  useEffect(() => {
+    if (Number(day) > daysInMonth) {
+      setDay(daysInMonth);
+    }
+    const d = Number(day),
+      m = Number(month),
+      y = Number(year);
+    if (d && m && y && !isDateValid) {
+      setErrorMsg("Tu dois avoir au moins 18 ans pour t'inscrire.");
+    } else {
+      setErrorMsg("");
+    }
+  }, [day, month, year, isDateValid, daysInMonth]);
+
+  const birthdate = isDateValid
+    ? `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
+        2,
+        "0"
+      )}`
+    : "";
+
+  const handleDayChange = useCallback(
+    (value: number) => {
+      setDay(value);
+      triggerJiggle(dayPickerBounce);
     },
-    [heightPickerBounce]
+    [dayPickerBounce]
   );
 
-  const handleWeightChange = useCallback(
-    (value: string) => {
-      setSelectedWeight(value);
-      triggerJiggle(weightPickerBounce);
+  const handleMonthChange = useCallback(
+    (value: number) => {
+      setMonth(value);
+      triggerJiggle(monthPickerBounce);
     },
-    [weightPickerBounce]
+    [monthPickerBounce]
+  );
+
+  const handleYearChange = useCallback(
+    (value: number) => {
+      setYear(value);
+      triggerJiggle(yearPickerBounce);
+    },
+    [yearPickerBounce]
   );
 
   return (
     <View style={styles.container}>
-      {/* Effet fumée blanche en haut à droite */}
+      {/* Effet fumée organique en haut à droite */}
       <View style={styles.smokeContainer}>
         <Svg height="100%" width="100%" style={StyleSheet.absoluteFillObject}>
           <Defs>
@@ -494,6 +530,7 @@ const RegisterStepHeightWeight = ({
             </RadialGradient>
           </Defs>
 
+          {/* Plusieurs ellipses pour créer l'effet fumée étendu */}
           <Ellipse
             cx="85%"
             cy="15%"
@@ -557,48 +594,63 @@ const RegisterStepHeightWeight = ({
 
       <View style={styles.contentWrapper}>
         <View style={styles.content}>
-          <Text style={styles.subtitle}>Compris !</Text>
-          <Text style={styles.headline}>Allez, on passe aux chiffres ?</Text>
-          <View style={styles.pickersContainer}>
+          <Text style={styles.subtitle}>Ari, un bien joli prénom.</Text>
+          <Text style={styles.headline}>C'est quand ton anniversaire?</Text>
+          <View style={styles.dateContainer}>
             <View style={styles.pickerSection}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Ta taille</Text>
+                <Text style={styles.label}>Jour</Text>
               </View>
               <Animated.View
-                style={[{ transform: [{ scale: heightPickerBounce }] }]}
+                style={[{ transform: [{ scale: dayPickerBounce }] }]}
               >
                 <IOSPicker
-                  data={HEIGHTS}
-                  formattedData={FORMATTED_HEIGHTS}
-                  selectedValue={selectedHeight}
-                  onValueChange={handleHeightChange}
+                  data={daysList}
+                  formattedData={daysList.map(String)}
+                  selectedValue={day}
+                  onValueChange={handleDayChange}
                 />
               </Animated.View>
             </View>
             <View style={styles.pickerSection}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Ton poids</Text>
+                <Text style={styles.label}>Mois</Text>
               </View>
               <Animated.View
-                style={[{ transform: [{ scale: weightPickerBounce }] }]}
+                style={[{ transform: [{ scale: monthPickerBounce }] }]}
               >
                 <IOSPicker
-                  data={WEIGHTS}
-                  formattedData={FORMATTED_WEIGHTS}
-                  selectedValue={selectedWeight}
-                  onValueChange={handleWeightChange}
+                  data={MONTHS.map((_, i) => i + 1)}
+                  formattedData={MONTHS}
+                  selectedValue={month}
+                  onValueChange={handleMonthChange}
+                />
+              </Animated.View>
+            </View>
+            <View style={styles.pickerSection}>
+              <View style={styles.labelContainer}>
+                <Text style={styles.label}>Année</Text>
+              </View>
+              <Animated.View
+                style={[{ transform: [{ scale: yearPickerBounce }] }]}
+              >
+                <IOSPicker
+                  data={YEARS}
+                  formattedData={YEARS.map(String)}
+                  selectedValue={year}
+                  onValueChange={handleYearChange}
                 />
               </Animated.View>
             </View>
           </View>
+          {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
         </View>
 
         <View style={styles.footer}>
           <TouchableOpacity
-            style={styles.nextButton}
-            onPress={() =>
-              onNext({ height: selectedHeight, weight: selectedWeight })
-            }
+            style={[styles.nextButton, { opacity: isDateValid ? 1 : 0.5 }]}
+            onPress={() => onNext({ birthdate })}
+            disabled={!isDateValid}
           >
             <Ionicons name="arrow-forward" size={24} color="#FF5135" />
           </TouchableOpacity>
@@ -640,7 +692,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderColor: "rgba(255, 81, 53, 0.4)",
     zIndex: 1,
   },
   progressContainer: {
@@ -684,12 +736,15 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontFamily: "Satoshi",
   },
-  pickersContainer: {
+  dateContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 20,
+    gap: 12,
+    marginTop: 10,
   },
-  pickerSection: { flex: 1 },
+  pickerSection: {
+    flex: 1,
+  },
   label: {
     fontSize: 14,
     fontWeight: "600",
@@ -724,7 +779,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     zIndex: 0,
   },
-  listContent: { paddingVertical: PICKER_HEIGHT / 2 - ITEM_HEIGHT / 2 },
+  listContent: {
+    paddingVertical: PICKER_HEIGHT / 2 - ITEM_HEIGHT / 2,
+  },
   pickerItem: {
     justifyContent: "center",
     alignItems: "center",
@@ -796,6 +853,17 @@ const styles = StyleSheet.create({
     zIndex: 6,
     pointerEvents: "none",
   },
+  errorText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    marginTop: 15,
+    textAlign: "center",
+    fontFamily: "Satoshi",
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
   footer: {
     justifyContent: "flex-end",
     alignItems: "flex-end",
@@ -828,4 +896,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default RegisterStepHeightWeight;
+export default RegisterStepBirthday;

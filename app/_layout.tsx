@@ -18,6 +18,8 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [loaded] = useFonts({
     SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
+    Satoshi: require("../assets/fonts/Satoshi-Variable.ttf"),
+    "Satoshi-Italic": require("../assets/fonts/Satoshi-VariableItalic.ttf"),
   });
 
   // ✅ Optimisation: Nettoyage du cache au démarrage
